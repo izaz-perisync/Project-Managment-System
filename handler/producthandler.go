@@ -155,6 +155,7 @@ func HandlerAddAssets(w http.ResponseWriter, r *http.Request) {
 	tokenString := getTokenStringFromRequest(r)
 
 	// Parse the multipart form data
+	// Parse the multipart form data
 	err := r.ParseMultipartForm(10 << 20) // Set an appropriate form size limit
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, "unable to parse form data")
