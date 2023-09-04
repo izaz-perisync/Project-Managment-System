@@ -41,7 +41,30 @@ type AddProduct struct {
 	Category    string `json:"category"`
 	FileData    []byte `json:"fileData"`
 	FileType    string `json:"fileType"`
+	FileDetails string `json:"fileDeatails"`
+	Price       int    `json:"price"`
 }
+
+type ListedProducts struct {
+	ProductName string `json:"productName"`
+	Description string `json:"description"`
+	Brand       string `json:"brand"`
+	Category    string `json:"category"`
+	Price       int    `json:"price"`
+}
+
+type UpdateProduct struct {
+	ProductName string `json:"productName"`
+	Description string `json:"description"`
+	Brand       string `json:"brand"`
+	Category    string `json:"category"`
+	Price       int    `json:"price"`
+}
+
+
+
+
+
 type Assets struct {
 	AssetId   int       `json:"assetId"`
 	AssetType string    `json:"assetType"`
@@ -51,7 +74,12 @@ type Assets struct {
 
 type ProductDetails struct {
 	ProductId int `json:"productId"`
-	AddProduct
+	ListedProducts
+	Assets []Assets
+}
+
+type Singleproduct struct {
+	ListedProducts
 	Assets []Assets
 }
 
@@ -64,6 +92,30 @@ type FilterByProductId struct {
 	ProductId int `schema:"productId"`
 	Page      int `schema:"page"`
 	Size      int `schema:"size"`
+}
+
+type UpdateAsset struct {
+	AssetId  int    `json:"assetId"`
+	FileDate []byte `json:"fileData"`
+	FileType string `json:"fileType"`
+}
+
+// if productName == "" || description == "" || brand == "" || category == "" {
+// 	writeJson(w, http.StatusBadRequest, "all fields are required")
+// 	return
+// }
+
+func (u *UpdateAsset) Validate() error {
+	if strconv.Itoa(u.AssetId) == "" {
+		return fmt.Errorf("assetId is empty")
+	}
+	if u.FileDate == nil {
+		return fmt.Errorf("file is empty")
+	}
+	if u.FileType == "" {
+		return fmt.Errorf("file type is empty")
+	}
+	return nil
 }
 
 func (u *Register) Validate() error {
@@ -110,22 +162,43 @@ func (l *Login) Validate() error {
 	return nil
 }
 
-func (p *AddProduct) Validate() error {
-	if p.ProductName == "" {
+func (a *AddProduct) Validate() error {
+	if a.ProductName == "" {
 		return fmt.Errorf("product name is empty")
 	}
-	if p.Description == "" {
-		return fmt.Errorf("product description is empty")
+	if a.Brand == "" {
+		return fmt.Errorf("brand is empty")
 	}
-	if p.Category == "" {
-		return fmt.Errorf(" category is empty")
+	if a.Category == "" {
+		return fmt.Errorf("category is empty")
 	}
-	if p.Brand == "" {
-		return fmt.Errorf("brand  is empty")
+	if a.Description == "" {
+		return fmt.Errorf("description is empty")
+	}
+	if a.FileData != nil {
+		if a.FileType == "" {
+			return fmt.Errorf("file type is empty")
+		}
 	}
 	return nil
 }
+func (a *UpdateProduct) Validate() error {
 
+	if a.ProductName == "" {
+		return fmt.Errorf("product name is empty")
+	}
+	if a.Brand == "" {
+		return fmt.Errorf("brand is empty")
+	}
+	if a.Category == "" {
+		return fmt.Errorf("category is empty")
+	}
+	if a.Description == "" {
+		return fmt.Errorf("description is empty")
+	}
+
+	return nil
+}
 func isValidEmail(email string) bool {
 	pattern := `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`
 	re := regexp.MustCompile(pattern)

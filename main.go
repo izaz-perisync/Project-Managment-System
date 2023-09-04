@@ -38,9 +38,12 @@ func main() {
 	product := api.PathPrefix("/product").Subrouter()
 	product.HandleFunc("/add", handler.HandlerAddProduct).Methods(http.MethodPost)
 	product.HandleFunc("/add_asset", handler.HandlerAddAssets).Methods(http.MethodPost)
-	product.HandleFunc("/update", handler.HandlerUpdateProduct).Methods(http.MethodPost)
+	product.HandleFunc("/update", handler.HandlerUpdateProduct).Methods(http.MethodPut)
 	product.HandleFunc("/list", handler.HandlerListProducts).Methods(http.MethodGet)
 	product.HandleFunc("/delete", handler.HandlerDeleteProduct).Methods(http.MethodDelete)
+	product.HandleFunc("/update_asset", handler.HandlerUpdateAsset).Methods(http.MethodPut)
+	product.HandleFunc("/details", handler.HandleGetProductData).Methods(http.MethodGet)
+	product.HandleFunc("/delete_asset", handler.HandlerDeleteAsset).Methods(http.MethodDelete)
 
 	log.Fatal(http.ListenAndServe(":3000", r))
 

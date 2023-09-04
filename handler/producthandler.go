@@ -28,11 +28,7 @@ func HandlerAddProduct(w http.ResponseWriter, r *http.Request) {
 	brand := r.FormValue("Brand")
 	category := r.FormValue("Category")
 	fileType := r.FormValue("FileType")
-
-	if productName == "" || description == "" || brand == "" || category == "" {
-		writeJson(w, http.StatusBadRequest, "all fields are required")
-		return
-	}
+	price := r.FormValue("Price")
 
 	file, _, err := r.FormFile("file")
 	if err != nil && err != http.ErrMissingFile {
@@ -58,48 +54,65 @@ func HandlerAddProduct(w http.ResponseWriter, r *http.Request) {
 		Category:    category,
 		FileData:    fileData,
 		FileType:    fileType,
+		Price:       price,
 	}
 
-	msg, err := service.AddProduct(tokenString, body)
+	err = service.AddProduct(tokenString, body)
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	if msg == "product-added" {
-		writeJson(w, http.StatusCreated, "product-added")
-		return
-	}
-
-	writeJson(w, http.StatusBadRequest, msg)
+	writeJson(w, http.StatusCreated, "product-added")
 }
 
 func HandlerUpdateProduct(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	tokenString := getTokenStringFromRequest(r)
-	product := r.URL.Query().Get("productId")
-	id, err := strconv.ParseInt(product, 0, 64)
+
+	// err := r.ParseMultipartForm(32 << 20)
+	// if err != nil {
+	// 	writeJson(w, http.StatusBadRequest, "failed to parse data")
+	// }
+
+	// productId := r.FormValue("productId")
+	// productName := r.FormValue("ProductName")
+	// description := r.FormValue("Description")
+	// brand := r.FormValue("Brand")
+	// category := r.FormValue("Category")
+	// fileType := r.FormValue("FileType")
+
+	// file, _, err := r.FormFile("file")
+	// if err != nil && err != http.ErrMissingFile {
+	// 	writeJson(w, http.StatusInternalServerError, "failed to upload files")
+	// }
+	// var data []byte
+	// if file != nil {
+	// 	defer file.Close()
+	// 	data, err = io.ReadAll(file)
+	// 	if err != nil {
+	// 		writeJson(w, http.StatusInternalServerError, "failed to read the file ")
+	// 	}
+	// }
+	productId := r.URL.Query().Get("productId")
+
+	prodId, err := strconv.ParseInt(productId, 0, 64)
 	if err != nil {
-		writeJson(w, http.StatusBadRequest, "error reading body")
-		return
+		writeJson(w, http.StatusBadRequest, "failed to parse")
 	}
-	var body model.AddProduct
+	var body model.UpdateProduct
 	err = json.NewDecoder(r.Body).Decode(&body)
 	if err != nil {
-		writeJson(w, http.StatusBadRequest, "malformed request")
-		return
+		writeJson(w, http.StatusBadRequest, "failed to parse")
 	}
-	updatedProduct, err := service.UpdateProduct(tokenString, id, body)
+	err = service.UpdateProduct(tokenString, body, prodId)
 	if err != nil {
 
-		writeJson(w, http.StatusBadRequest, "update failure")
+		writeJson(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if updatedProduct != nil {
 
-		json.NewEncoder(w).Encode(updatedProduct)
-		return
-	}
+	writeJson(w, http.StatusOK, "product updated")
 
 }
 
@@ -139,10 +152,10 @@ func HandlerDeleteProduct(w http.ResponseWriter, r *http.Request) {
 
 	msg, err := service.DeleteProduct(tokenString, id)
 	if err != nil {
-		writeJson(w, http.StatusBadRequest, err)
+		writeJson(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if msg != "" {
+	if msg == "delete success" {
 		writeJson(w, http.StatusOK, msg)
 		return
 	}
@@ -154,16 +167,14 @@ func HandlerAddAssets(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	tokenString := getTokenStringFromRequest(r)
 
-	// Parse the multipart form data
-	// Parse the multipart form data
-	err := r.ParseMultipartForm(10 << 20) // Set an appropriate form size limit
+	err := r.ParseMultipartForm(32 << 20) // Set an appropriate form size limit
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, "unable to parse form data")
 		return
 	}
 
 	fileType := r.FormValue("FileType")
-	productID := r.FormValue("productId")
+	productId := r.FormValue("productId")
 	file, _, err := r.FormFile("file")
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, "missing file field")
@@ -171,7 +182,7 @@ func HandlerAddAssets(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	id, err := strconv.ParseInt(productID, 0, 64)
+	id, err := strconv.ParseInt(productId, 0, 64)
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, "malformed request")
 		return
@@ -183,16 +194,98 @@ func HandlerAddAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg, err := service.AddAsset(data, tokenString, fileType, id)
+	err = service.AddAssets(data, tokenString, fileType, id)
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if msg != "" {
-		writeJson(w, http.StatusCreated, msg)
+
+	writeJson(w, http.StatusCreated, "assets-added")
+}
+
+func HandlerUpdateAsset(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	tokenString := getTokenStringFromRequest(r)
+	err := r.ParseMultipartForm(32 << 20) // Set an appropriate form size limit
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, "unable to parse form data")
 		return
 	}
-	writeJson(w, http.StatusBadRequest, msg)
+
+	fileType := r.FormValue("FileType")
+	assetId := r.FormValue("assetId")
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, "missing file field")
+		return
+	}
+	defer file.Close()
+
+	id, err := strconv.ParseInt(assetId, 0, 64)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, "malformed request")
+		return
+	}
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, "reading file error")
+		return
+	}
+
+	body := model.UpdateAsset{
+		AssetId:  int(id),
+		FileDate: data,
+		FileType: fileType,
+	}
+
+	err = service.UpdateAsset(body, tokenString)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJson(w, http.StatusCreated, "assets-added")
+}
+
+func HandleGetProductData(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	product := r.URL.Query().Get("productId")
+	id, err := strconv.ParseInt(product, 0, 64)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, "error reading body")
+		return
+	}
+	productData, err := service.GetProduct(id)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if productData != nil {
+
+		json.NewEncoder(w).Encode(productData)
+		return
+	}
+
+}
+
+func HandlerDeleteAsset(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	product := r.URL.Query().Get("assetId")
+	id, err := strconv.ParseInt(product, 0, 64)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, "error reading body")
+		return
+	}
+	w.Header().Set("content-type", "application/json")
+	tokenString := getTokenStringFromRequest(r)
+
+	err = service.DeleteAsset(tokenString, id)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJson(w, http.StatusOK, "asset-deleted")
 }
 
 func getTokenStringFromRequest(r *http.Request) string {
