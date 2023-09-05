@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/lib/pq"
 	"github.com/perisynctechnologies/pms/model"
 )
 
@@ -29,11 +31,20 @@ func AddProduct(token string, body model.AddProduct) error {
 	log.Println(find)
 	if !find {
 		var productid int
+		price, err := strconv.ParseInt(body.Price, 0, 64)
+		if err != nil {
+			return err
+		}
+
+		stock, err := strconv.ParseInt(body.ProductCount, 0, 64)
+		if err != nil {
+			return err
+		}
 
 		err = db.QueryRow(`insert into product
-		 (userid, product_name, description, brand, category, created_at, updated_at,price) 
-		 values ($1, $2, $3, $4, $5, $6, $7,$8) returning product_id`,
-			id, body.ProductName, body.Description, body.Brand, body.Category, time.Now(), nil, body.Price).Scan(&productid)
+		 (userid, product_name, description, brand, category, created_at, updated_at,price,stock) 
+		 values ($1, $2, $3, $4, $5, $6, $7,$8,$9) returning product_id`,
+			id, body.ProductName, body.Description, body.Brand, body.Category, time.Now(), nil, price, stock).Scan(&productid)
 		if err != nil {
 
 			return fmt.Errorf("product not added")
@@ -136,7 +147,6 @@ func AddAssets(data []byte, token string, filetype string, product int64) error 
 
 }
 
-// C:\Users\IZAZ\Desktop\pms\Project-Managment-System\productfiles\42\28.png
 func UpdateProduct(token string, body model.UpdateProduct, prodId int64) error {
 	id, err := VaildSign(token)
 	if err != nil {
@@ -145,8 +155,13 @@ func UpdateProduct(token string, body model.UpdateProduct, prodId int64) error {
 	if err := body.Validate(); err != nil {
 		return err
 	}
+	// price, err := strconv.ParseInt(body.Price, 0, 64)
+	// if err != nil {
+	// 	return err
+	// }
+
 	result, err := db.Exec(`update product set product_name=$1,
-	description=$2,brand=$3,category=$4,updated_At=$5 where userid=$6 and product_id=$7`, body.ProductName, body.Description, body.Brand, body.Category, time.Now(), id, prodId)
+	description=$2,brand=$3,category=$4,updated_At=$5,price=$6,stock=$7 where userid=$8 and product_id=$9`, body.ProductName, body.Description, body.Brand, body.Category, time.Now(), body.Price, body.Stock, id, prodId)
 	if err != nil {
 
 		return err
@@ -224,8 +239,8 @@ func MatchedProducts(body model.AddProduct, id *int) bool {
 
 	var count int
 	err := db.QueryRow(`select count(*) from product where 
-  category=$1 and brand=$2 and userid=$3 and product_name=$4`,
-		body.Category, body.Brand, id, body.ProductName).Scan(&count)
+  userid=$1 and product_name=$2`,
+		id, body.ProductName).Scan(&count)
 	if err != nil {
 		return false
 	}
@@ -235,12 +250,13 @@ func MatchedProducts(body model.AddProduct, id *int) bool {
 
 func ProductList(body model.FilterByProductId) (*model.ListProducts, error) {
 
-	query := `select product_id,product_name,description,brand,category,price from product `
+	query := `select product_id,product_name,description,brand,category,price,stock from product `
 
 	if body.ProductId != 0 {
 		query += " where " + " product_id = " + strconv.Itoa(body.ProductId)
 
 	}
+
 	if body.Size == 0 {
 		body.Size = 10
 	}
@@ -251,7 +267,25 @@ func ProductList(body model.FilterByProductId) (*model.ListProducts, error) {
 			offset = body.Size * (body.Page - 1)
 		}
 	}
-	query += fmt.Sprintf(" ORDER BY product_id DESC OFFSET %d LIMIT %d ", offset, body.Size)
+	if body.PriceMax == 0 && body.PriceMin == 0 && body.Sort == "" {
+
+		query += fmt.Sprintf(" ORDER BY product_id DESC OFFSET %d LIMIT %d ", offset, body.Size)
+	}
+
+	if body.PriceMin != 0 && body.PriceMax != 0 && body.Sort == "" {
+		query += fmt.Sprintf(" where price BETWEEN %d AND %d ORDER BY price DESC OFFSET %d LIMIT %d ", body.PriceMin, body.PriceMax, offset, body.Size)
+	} else if body.PriceMin != 0 && body.Sort == "" {
+		query += fmt.Sprintf(" where price >= %d ORDER BY price DESC OFFSET %d LIMIT %d  ", body.PriceMin, offset, body.Size)
+	} else if body.PriceMax != 0 && body.Sort == "" {
+		query += fmt.Sprintf(" where price <= %d ORDER BY price DESC OFFSET %d LIMIT %d", body.PriceMax, offset, body.Size)
+	}
+	if body.PriceMin != 0 && body.PriceMax != 0 && body.Sort != "" {
+		query += fmt.Sprintf(" where price BETWEEN %d AND %d ORDER BY price %s OFFSET %d LIMIT %d ", body.PriceMin, body.PriceMax, body.Sort, offset, body.Size)
+	} else if body.PriceMin != 0 && body.Sort != "" {
+		query += fmt.Sprintf(" where price >= %d ORDER BY price %s OFFSET %d LIMIT %d  ", body.PriceMin, body.Sort, offset, body.Size)
+	} else if body.PriceMax != 0 && body.Sort != "" {
+		query += fmt.Sprintf(" where price <= %d ORDER BY price %s OFFSET %d LIMIT %d  ", body.PriceMin, body.Sort, offset, body.Size)
+	}
 
 	var data model.ListProducts
 
@@ -266,7 +300,7 @@ func ProductList(body model.FilterByProductId) (*model.ListProducts, error) {
 	for rows.Next() {
 		var list model.ProductDetails
 
-		err := rows.Scan(&list.ProductId, &list.ProductName, &list.Description, &list.Brand, &list.Category, &list.Price)
+		err := rows.Scan(&list.ProductId, &list.ProductName, &list.Description, &list.Brand, &list.Category, &list.Price, &list.Stock)
 
 		if err != nil {
 			return nil, err
@@ -419,10 +453,11 @@ func GetProduct(id int64) (*model.Singleproduct, error) {
 				return nil, err
 			}
 			data.Assets = append(data.Assets, assetlist)
+			return &data, nil
 		}
 
 	}
-	return &data, nil
+	return nil, nil
 }
 
 func DeleteAsset(token string, asset_id int64) error {
@@ -459,4 +494,307 @@ func DeleteAsset(token string, asset_id int64) error {
 	}
 	return nil
 
+}
+
+func FilterProduct(body model.FilterProduct) (*model.ListProducts, error) {
+
+	query := `select product_id,product_name,description,brand,category,price,stock from product `
+	if body.Size == 0 {
+		body.Size = 10
+	}
+	offset := 0
+	if body.Page != 0 {
+
+		if body.Page > 1 {
+			offset = body.Size * (body.Page - 1)
+		}
+	}
+	var paramValues []interface{}
+
+	var conditions []string
+
+	if body.ProductName != "" {
+		conditions = append(conditions, "product_name ILIKE $"+strconv.Itoa(len(paramValues)+1))
+		paramValues = append(paramValues, "%"+body.ProductName+"%")
+
+	}
+	if body.Brand != "" {
+		conditions = append(conditions, "brand ILIKE $"+strconv.Itoa(len(paramValues)+1))
+		// paramValues = append(paramValues, body.Brand)
+		paramValues = append(paramValues, "%"+body.Brand+"%")
+	}
+	if body.Category != "" {
+		conditions = append(conditions, "category ILIKE $"+strconv.Itoa(len(paramValues)+1))
+		// paramValues = append(paramValues, body.Category)
+		paramValues = append(paramValues, "%"+body.Category+"%")
+	}
+
+	if body.PriceMin != 0 && body.PriceMax != 0 {
+		conditions = append(conditions, "price BETWEEN $"+strconv.Itoa(len(paramValues)+1)+" AND $"+strconv.Itoa(len(paramValues)+2))
+		paramValues = append(paramValues, body.PriceMin)
+		paramValues = append(paramValues, body.PriceMax)
+	} else if body.PriceMin != 0 {
+		conditions = append(conditions, "price >= $"+strconv.Itoa(len(paramValues)+1))
+		paramValues = append(paramValues, body.PriceMin)
+	} else if body.PriceMax != 0 {
+		conditions = append(conditions, "price <= $ "+strconv.Itoa(len(paramValues)+1))
+		paramValues = append(paramValues, body.PriceMax)
+	}
+	fmt.Println("===", conditions)
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+
+		log.Println(strings.Join(conditions, " AND "))
+	}
+
+	if body.SortColumn != "" {
+		query += " ORDER BY " + body.SortColumn + " " + body.SortOrder
+	} else {
+
+		query += " ORDER BY product_id DESC"
+	}
+
+	query += fmt.Sprintf(" OFFSET %d LIMIT %d", offset, body.Size)
+
+	var data model.ListProducts
+	fmt.Println(query)
+	data.TotalCount = 0
+	rows, err := db.Query(query, paramValues...)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+	for rows.Next() {
+		var list model.ProductDetails
+
+		err := rows.Scan(&list.ProductId, &list.ProductName, &list.Description, &list.Brand, &list.Category, &list.Price, &list.Stock)
+
+		if err != nil {
+			return nil, err
+		}
+		row2, err := db.Query(`select asset_id,file_path,file_type,added_at from product_assets where productid=$1`, list.ProductId)
+		if err != nil {
+			return nil, err
+		}
+		defer row2.Close()
+		for row2.Next() {
+			var assetlist model.Assets
+			err := row2.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
+			if err != nil {
+				return nil, err
+			}
+
+			list.Assets = append(list.Assets, assetlist)
+
+		}
+
+		data.TotalCount++
+
+		data.ProductList = append(data.ProductList, list)
+
+	}
+	return &data, nil
+
+}
+
+func AddTocart(productId int64, token string) error {
+	id, err := VaildSign(token)
+	if err != nil {
+		return err
+	}
+	var productexsits, stock int
+	err = db.QueryRow(`select product_id,stock from product where product_id=$1`, productId).Scan(&productexsits, &stock)
+	if err != nil {
+		return errors.New("product not found")
+	}
+
+	if stock <= 0 {
+		return errors.New("product-out-of-stock")
+	}
+
+	count, cartid := matched(productId, id)
+	if count > 0 {
+
+		_, err = db.Exec(`update cart set product_count=$1 where cartid=$2`, count+1, cartid)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	_, err = db.Exec(`insert into cart (productid,product_count,userid) values ($1,$2,$3)`, productexsits, count+1, id)
+	if err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+func RemoveCart(cartId int64, token string) error {
+	id, err := VaildSign(token)
+	if err != nil {
+		return err
+	}
+	result, err := db.Exec(`delete from cart where cartid=$1 and userid=$2`, cartId, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+
+		return err
+	}
+	if rowsAffected == 0 {
+
+		return fmt.Errorf("cart not found")
+	}
+	return nil
+}
+
+func CartList(token string, body model.FilterByProductId) (*model.CartList, error) {
+	id, err := VaildSign(token)
+	if err != nil {
+		return nil, err
+	}
+	query := "select productid,product_count,cartid from cart where userid=$1"
+	if body.Size == 0 {
+		body.Size = 10
+	}
+	offset := 0
+	if body.Page != 0 {
+
+		if body.Page > 1 {
+			offset = body.Size * (body.Page - 1)
+		}
+	}
+
+	query += fmt.Sprintf(" ORDER BY cartid DESC OFFSET %d LIMIT %d", offset, body.Size)
+
+	row, err := db.Query(query, id)
+
+	fmt.Println(query)
+	if err != nil {
+		return nil, err
+	}
+	var list model.CartList
+	list.TotalCount = 0
+	defer row.Close()
+	for row.Next() {
+		var body model.CartDetails
+		var product int
+		err := row.Scan(&product, &body.ProductCount, &body.CartId)
+		if err != nil {
+			return nil, err
+		}
+		rows2, err := db.Query(`select product_name,description,brand,category,price,stock from product where product_id=$1`, product)
+		if err != nil {
+			return nil, err
+		}
+		defer rows2.Close()
+		for rows2.Next() {
+			err := rows2.Scan(&body.ProductName, &body.Description, &body.Brand, &body.Category, &body.Price, &body.Stock)
+			if err != nil {
+				return nil, err
+			}
+			row2, err := db.Query(`select asset_id,file_path,file_type,added_at from product_assets where productid=$1`, product)
+			if err != nil {
+				return nil, err
+			}
+			defer row2.Close()
+			for row2.Next() {
+				var assetlist model.Assets
+				err := row2.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
+				if err != nil {
+					return nil, err
+				}
+
+				body.Assets = append(body.Assets, assetlist)
+
+			}
+
+		}
+		list.TotalCount++
+		list.CartData = append(list.CartData, body)
+	}
+	return &list, nil
+
+}
+
+// func PlaceOrder(token string) error {
+// 	id, err := VaildSign(token)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	var cartid, product []int
+// 	err = db.QueryRow(`select cartid,productid from cart where userid =$1`, id).Scan(&cartid, &product)
+// 	if err != nil {
+// 		return errors.New("no item in cart")
+// 	}
+// 	fmt.Println(cartid, product)
+// 	return nil
+// }
+
+func PlaceOrder(token string) error {
+	id, err := VaildSign(token)
+	if err != nil {
+		return err
+	}
+
+	// Use db.Query to retrieve multiple rows
+	rows, err := db.Query(`SELECT cartid, productid FROM cart WHERE userid = $1`, id)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var cartids []int
+	var products []int
+
+	// Iterate through the rows and append values to the arrays
+	for rows.Next() {
+		var cartid, productid int
+		if err := rows.Scan(&cartid, &productid); err != nil {
+			return err
+		}
+		cartids = append(cartids, cartid)
+		products = append(products, productid)
+	}
+
+	// Check for any errors during iteration
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	cartidsArray := pq.Array(cartids)
+	productsArray := pq.Array(products)
+
+
+	db.QueryRow(`select stock from product where product_id=$1`,)
+
+	_, err = db.Exec(`INSERT INTO orders (orderlist, userid, productid) VALUES ($1, $2, $3)`, cartidsArray, id, productsArray)
+
+	if err != nil {
+		return err
+	}
+
+	
+
+	return nil
+}
+
+func matched(productid int64, id *int) (int, int) {
+	var count, cartid int
+
+	err := db.QueryRow(`select product_count,cartid from cart where 
+  productid=$1 and userid=$2  `,
+		productid, id).Scan(&count, &cartid)
+	if err != nil {
+
+		return count, cartid
+	}
+
+	return count, cartid
 }

@@ -44,6 +44,13 @@ func main() {
 	product.HandleFunc("/update_asset", handler.HandlerUpdateAsset).Methods(http.MethodPut)
 	product.HandleFunc("/details", handler.HandleGetProductData).Methods(http.MethodGet)
 	product.HandleFunc("/delete_asset", handler.HandlerDeleteAsset).Methods(http.MethodDelete)
+	product.HandleFunc("/filter", handler.HandlerFilterProduct).Methods(http.MethodPost)
+	product.HandleFunc("/order", handler.HandlerPlaceOrder).Methods(http.MethodPost)
+
+	cart := product.PathPrefix("/cart").Subrouter()
+	cart.HandleFunc("/add", handler.HandleAddToCart).Methods(http.MethodPost)
+	cart.HandleFunc("/delete", handler.HandlerDeleteCart).Methods(http.MethodDelete)
+	cart.HandleFunc("/list", handler.HandlerCartList).Methods(http.MethodGet)
 
 	log.Fatal(http.ListenAndServe(":3000", r))
 

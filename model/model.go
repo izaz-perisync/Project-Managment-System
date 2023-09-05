@@ -35,14 +35,15 @@ type Claims struct {
 }
 
 type AddProduct struct {
-	ProductName string `json:"productName"`
-	Description string `json:"description"`
-	Brand       string `json:"brand"`
-	Category    string `json:"category"`
-	FileData    []byte `json:"fileData"`
-	FileType    string `json:"fileType"`
-	FileDetails string `json:"fileDeatails"`
-	Price       int    `json:"price"`
+	ProductName  string `json:"productName"`
+	Description  string `json:"description"`
+	Brand        string `json:"brand"`
+	Category     string `json:"category"`
+	FileData     []byte `json:"fileData"`
+	FileType     string `json:"fileType"`
+	FileDetails  string `json:"fileDeatails"`
+	Price        string `json:"price"`
+	ProductCount string `json:"stock"`
 }
 
 type ListedProducts struct {
@@ -51,6 +52,7 @@ type ListedProducts struct {
 	Brand       string `json:"brand"`
 	Category    string `json:"category"`
 	Price       int    `json:"price"`
+	Stock       int    `json:"stock"`
 }
 
 type UpdateProduct struct {
@@ -59,11 +61,8 @@ type UpdateProduct struct {
 	Brand       string `json:"brand"`
 	Category    string `json:"category"`
 	Price       int    `json:"price"`
+	Stock       int    `json:"stock"`
 }
-
-
-
-
 
 type Assets struct {
 	AssetId   int       `json:"assetId"`
@@ -89,15 +88,43 @@ type ListProducts struct {
 }
 
 type FilterByProductId struct {
-	ProductId int `schema:"productId"`
-	Page      int `schema:"page"`
-	Size      int `schema:"size"`
+	ProductId int    `schema:"productId"`
+	Page      int    `schema:"page"`
+	Size      int    `schema:"size"`
+	PriceMin  int    `schema:"PriceMin"`
+	PriceMax  int    `schema:"PriceMax"`
+	Sort      string `schema:"sort"`
+}
+
+type FilterProduct struct {
+	ProductName string `schema:"productName"`
+	Brand       string `schema:"brand"`
+	Category    string `schema:"category"`
+	PriceMin    int    `schema:"priceMin"`
+	PriceMax    int    `schema:"priceMax"`
+	Sort        string `schema:"sort"`
+	Page        int    `schema:"page"`
+	Size        int    `schema:"size"`
+	SortColumn  string `schema:"sortColumn"`
+	SortOrder   string `schema:"sortOrder"`
 }
 
 type UpdateAsset struct {
 	AssetId  int    `json:"assetId"`
 	FileDate []byte `json:"fileData"`
 	FileType string `json:"fileType"`
+}
+
+type CartDetails struct {
+	CartId int `json:"cartid"`
+	ListedProducts
+	ProductCount int `json:"productCount"`
+	Assets       []Assets
+}
+
+type CartList struct {
+	TotalCount int `json:"totalCount"`
+	CartData   []CartDetails
 }
 
 // if productName == "" || description == "" || brand == "" || category == "" {
@@ -180,6 +207,12 @@ func (a *AddProduct) Validate() error {
 			return fmt.Errorf("file type is empty")
 		}
 	}
+	if a.Price == "" {
+		return fmt.Errorf("price is empty")
+	}
+	if a.ProductCount == "" {
+		return fmt.Errorf("stock is empty")
+	}
 	return nil
 }
 func (a *UpdateProduct) Validate() error {
@@ -195,6 +228,12 @@ func (a *UpdateProduct) Validate() error {
 	}
 	if a.Description == "" {
 		return fmt.Errorf("description is empty")
+	}
+	if strconv.Itoa(a.Price) == "" {
+		return fmt.Errorf("price is empty")
+	}
+	if strconv.Itoa(a.Stock) == "" {
+		return fmt.Errorf("stock is empty")
 	}
 
 	return nil

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"io"
+	"log"
 
 	"net/http"
 	"strconv"
@@ -29,6 +30,7 @@ func HandlerAddProduct(w http.ResponseWriter, r *http.Request) {
 	category := r.FormValue("Category")
 	fileType := r.FormValue("FileType")
 	price := r.FormValue("Price")
+	stock := r.FormValue("ProductCount")
 
 	file, _, err := r.FormFile("file")
 	if err != nil && err != http.ErrMissingFile {
@@ -48,13 +50,14 @@ func HandlerAddProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body := model.AddProduct{
-		ProductName: productName,
-		Description: description,
-		Brand:       brand,
-		Category:    category,
-		FileData:    fileData,
-		FileType:    fileType,
-		Price:       price,
+		ProductName:  productName,
+		Description:  description,
+		Brand:        brand,
+		Category:     category,
+		FileData:     fileData,
+		FileType:     fileType,
+		Price:        price,
+		ProductCount: stock,
 	}
 
 	err = service.AddProduct(tokenString, body)
@@ -98,12 +101,15 @@ func HandlerUpdateProduct(w http.ResponseWriter, r *http.Request) {
 
 	prodId, err := strconv.ParseInt(productId, 0, 64)
 	if err != nil {
+		log.Println("111")
 		writeJson(w, http.StatusBadRequest, "failed to parse")
+		return
 	}
 	var body model.UpdateProduct
 	err = json.NewDecoder(r.Body).Decode(&body)
 	if err != nil {
-		writeJson(w, http.StatusBadRequest, "failed to parse")
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	err = service.UpdateProduct(tokenString, body, prodId)
 	if err != nil {
@@ -122,7 +128,7 @@ func HandlerListProducts(w http.ResponseWriter, r *http.Request) {
 	var body model.FilterByProductId
 	err := decoder.Decode(&body, r.URL.Query())
 	if err != nil {
-		writeJson(w, http.StatusBadRequest, err)
+		writeJson(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -138,6 +144,25 @@ func HandlerListProducts(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJson(w, http.StatusNoContent, ProductsList)
 
+}
+
+func HandlerFilterProduct(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	var body model.FilterProduct
+	err := json.NewDecoder(r.Body).Decode(&body)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, "failed to parse")
+	}
+	list, err := service.FilterProduct(body)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if list.TotalCount != 0 {
+		json.NewEncoder(w).Encode(list)
+		return
+	}
+	writeJson(w, http.StatusNoContent, list)
 }
 
 func HandlerDeleteProduct(w http.ResponseWriter, r *http.Request) {
@@ -265,6 +290,7 @@ func HandleGetProductData(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(productData)
 		return
 	}
+	writeJson(w, http.StatusNoContent, nil)
 
 }
 
@@ -286,6 +312,79 @@ func HandlerDeleteAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJson(w, http.StatusOK, "asset-deleted")
+}
+
+func HandleAddToCart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	tokenString := getTokenStringFromRequest(r)
+	product := r.URL.Query().Get("productId")
+
+	id, err := strconv.ParseInt(product, 0, 64)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, "error reading body")
+		return
+	}
+
+	err = service.AddTocart(id, tokenString)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJson(w, http.StatusCreated, "Product-added-to-Cart")
+
+}
+
+func HandlerDeleteCart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	tokenString := getTokenStringFromRequest(r)
+	cartId := r.URL.Query().Get("cartId")
+
+	id, err := strconv.ParseInt(cartId, 0, 64)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	err = service.RemoveCart(id, tokenString)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJson(w, http.StatusOK, "Cart-deleted")
+
+}
+
+func HandlerPlaceOrder(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	tokenString := getTokenStringFromRequest(r)
+	err := service.PlaceOrder(tokenString)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJson(w, http.StatusOK, "OrderPlaced")
+}
+
+func HandlerCartList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	tokenString := getTokenStringFromRequest(r)
+	var decoder = schema.NewDecoder()
+	var body model.FilterByProductId
+	err := decoder.Decode(&body, r.URL.Query())
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	list, err := service.CartList(tokenString, body)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if list.TotalCount != 0 {
+		json.NewEncoder(w).Encode(list)
+		return
+	}
+	writeJson(w, http.StatusNoContent, nil)
 }
 
 func getTokenStringFromRequest(r *http.Request) string {
