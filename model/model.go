@@ -70,6 +70,13 @@ type Assets struct {
 	FilePath  string    `json:"filePath"`
 	Added_at  time.Time `json:"added_At"`
 }
+type ListWithoutStock struct {
+	ProductName string `json:"productName"`
+	Description string `json:"description"`
+	Brand       string `json:"brand"`
+	Category    string `json:"category"`
+	Price       int    `json:"price"`
+}
 
 type ProductDetails struct {
 	ProductId int `json:"productId"`
@@ -79,6 +86,10 @@ type ProductDetails struct {
 
 type Singleproduct struct {
 	ListedProducts
+	Assets []Assets
+}
+type ProductData struct {
+	ListWithoutStock
 	Assets []Assets
 }
 
@@ -125,6 +136,22 @@ type CartDetails struct {
 type CartList struct {
 	TotalCount int `json:"totalCount"`
 	CartData   []CartDetails
+}
+
+type OrderDetails struct {
+	OrderId int `json:"orderId"`
+	ListedProducts
+	Assets []Assets
+}
+
+type OrderData struct {
+	TotalCount  int `json:"totalCount"`
+	ProductInfo []ProductData
+}
+
+type OrderList struct {
+	TotalCount   int `json:"totalCount"`
+	OrderDetails []OrderDetails
 }
 
 // if productName == "" || description == "" || brand == "" || category == "" {

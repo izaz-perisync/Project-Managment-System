@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 
@@ -138,10 +139,11 @@ func HandlerListProducts(w http.ResponseWriter, r *http.Request) {
 		writeJson(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if ProductsList != nil {
+	if ProductsList.TotalCount != 0 {
 		json.NewEncoder(w).Encode(ProductsList)
 		return
 	}
+
 	writeJson(w, http.StatusNoContent, ProductsList)
 
 }
@@ -321,7 +323,8 @@ func HandleAddToCart(w http.ResponseWriter, r *http.Request) {
 
 	id, err := strconv.ParseInt(product, 0, 64)
 	if err != nil {
-		writeJson(w, http.StatusBadRequest, "error reading body")
+		fmt.Println("a")
+		writeJson(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -363,6 +366,43 @@ func HandlerPlaceOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJson(w, http.StatusOK, "OrderPlaced")
+}
+
+func HandlerOrderList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	tokenString := getTokenStringFromRequest(r)
+	list, err := service.OrderList(tokenString)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if list.TotalCount != 0 {
+		json.NewEncoder(w).Encode(list)
+		return
+	}
+	writeJson(w, http.StatusNoContent, nil)
+}
+
+func HandlerOrderdetails(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	orderId := r.URL.Query().Get("orderId")
+
+	id, err := strconv.ParseInt(orderId, 0, 64)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	list, err := service.OrderDetails(id)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if list != nil {
+		json.NewEncoder(w).Encode(list)
+		return
+	}
+	writeJson(w, http.StatusNoContent, nil)
+
 }
 
 func HandlerCartList(w http.ResponseWriter, r *http.Request) {

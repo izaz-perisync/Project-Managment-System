@@ -602,7 +602,7 @@ func FilterProduct(body model.FilterProduct) (*model.ListProducts, error) {
 func AddTocart(productId int64, token string) error {
 	id, err := VaildSign(token)
 	if err != nil {
-		return err
+		return errors.New("token error")
 	}
 	var productexsits, stock int
 	err = db.QueryRow(`select product_id,stock from product where product_id=$1`, productId).Scan(&productexsits, &stock)
@@ -619,14 +619,14 @@ func AddTocart(productId int64, token string) error {
 
 		_, err = db.Exec(`update cart set product_count=$1 where cartid=$2`, count+1, cartid)
 		if err != nil {
-			return err
+			return errors.New("update error")
 		}
 		return nil
 	}
 
 	_, err = db.Exec(`insert into cart (productid,product_count,userid) values ($1,$2,$3)`, productexsits, count+1, id)
 	if err != nil {
-		return err
+		return errors.New("insert error")
 	}
 
 	return nil
@@ -723,27 +723,12 @@ func CartList(token string, body model.FilterByProductId) (*model.CartList, erro
 
 }
 
-// func PlaceOrder(token string) error {
-// 	id, err := VaildSign(token)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	var cartid, product []int
-// 	err = db.QueryRow(`select cartid,productid from cart where userid =$1`, id).Scan(&cartid, &product)
-// 	if err != nil {
-// 		return errors.New("no item in cart")
-// 	}
-// 	fmt.Println(cartid, product)
-// 	return nil
-// }
-
 func PlaceOrder(token string) error {
 	id, err := VaildSign(token)
 	if err != nil {
 		return err
 	}
 
-	// Use db.Query to retrieve multiple rows
 	rows, err := db.Query(`SELECT cartid, productid FROM cart WHERE userid = $1`, id)
 	if err != nil {
 		return err
@@ -753,36 +738,186 @@ func PlaceOrder(token string) error {
 	var cartids []int
 	var products []int
 
-	// Iterate through the rows and append values to the arrays
 	for rows.Next() {
 		var cartid, productid int
+
 		if err := rows.Scan(&cartid, &productid); err != nil {
 			return err
 		}
 		cartids = append(cartids, cartid)
 		products = append(products, productid)
 	}
+	if len(products) == 0 {
+		return errors.New("no items in the cart")
+	}
 
-	// Check for any errors during iteration
 	if err := rows.Err(); err != nil {
 		return err
+	}
+
+	var stock []int
+	for _, v := range products {
+		var productstock int
+		err = db.QueryRow(`select stock from product where product_id=$1`, v).Scan(&productstock)
+		if err != nil {
+			return err
+		}
+		stock = append(stock, productstock)
+	}
+	fmt.Println(stock)
+
+	for _, s := range stock {
+		if s <= 0 {
+			return fmt.Errorf("one or more products are out of stock")
+		}
 	}
 
 	cartidsArray := pq.Array(cartids)
 	productsArray := pq.Array(products)
 
-
-	db.QueryRow(`select stock from product where product_id=$1`,)
-
 	_, err = db.Exec(`INSERT INTO orders (orderlist, userid, productid) VALUES ($1, $2, $3)`, cartidsArray, id, productsArray)
-
 	if err != nil {
+		fmt.Println("error insert")
 		return err
 	}
 
-	
+	for _, pid := range products {
+		_, err := db.Exec(`UPDATE product SET stock = stock - 1 WHERE product_id = $1`, pid)
+		if err != nil {
+
+			return err
+		}
+
+		// Check if the stock was updated for each product
+		if _, err := db.Exec(`SELECT stock FROM product WHERE product_id = $1`, pid); err != nil {
+
+			return fmt.Errorf("stock not updated for product %d", pid)
+		}
+
+	}
 
 	return nil
+}
+
+func OrderDetails(orderid int64) (*model.OrderData, error) {
+	rows, err := db.Query(`SELECT  productid FROM orders WHERE orderid = $1`, orderid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var productid []int64
+	for rows.Next() {
+
+		var productidArray pq.Int64Array
+
+		if err := rows.Scan(&productidArray); err != nil {
+			return nil, errors.New("scan errror")
+		}
+
+		productid = append(productid, productidArray...)
+
+	}
+	if len(productid) == 0 {
+		return nil, err
+	}
+	var order model.OrderData
+	// order.TotalCount = 0
+	order.TotalCount = len(productid)
+
+	for _, value := range productid {
+
+		rows2, err := db.Query(`select product_name,description,brand,category,price from product where product_id=$1`, value)
+		if err != nil {
+			return nil, err
+		}
+		defer rows2.Close()
+		for rows2.Next() {
+			var OrderDetails model.ProductData
+			err := rows2.Scan(&OrderDetails.ProductName, &OrderDetails.Description, &OrderDetails.Brand, &OrderDetails.Category, &OrderDetails.Price)
+			if err != nil {
+				return nil, err
+			}
+			row3, err := db.Query(`select asset_id,file_path,file_type,added_at from product_assets where productid=$1`, value)
+			if err != nil {
+				return nil, err
+			}
+			defer row3.Close()
+			for row3.Next() {
+				var assetlist model.Assets
+				err := row3.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
+				if err != nil {
+					return nil, err
+				}
+
+				OrderDetails.Assets = append(OrderDetails.Assets, assetlist)
+
+			}
+
+			order.ProductInfo = append(order.ProductInfo, OrderDetails)
+
+		}
+
+	}
+	return &order, nil
+}
+
+func OrderList(token string) (*model.OrderList, error) {
+	id, err := VaildSign(token)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`SELECT orderid, productid FROM orders WHERE userid = $1`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var productid []int64
+	var order model.OrderDetails
+	var list model.OrderList
+
+	for rows.Next() {
+
+		var productidArray pq.Int64Array
+
+		if err := rows.Scan(&order.OrderId, &productidArray); err != nil {
+			return nil, errors.New("scan errror")
+		}
+
+		productid = append(productid, productidArray...)
+
+	}
+	list.TotalCount = len(productid)
+	for _, value := range productid {
+		rows2, err := db.Query(`select product_name,description,brand,category,price,stock from product where product_id=$1`, value)
+		if err != nil {
+			return nil, err
+		}
+		defer rows2.Close()
+		for rows2.Next() {
+			err := rows2.Scan(&order.ProductName, &order.Description, &order.Brand, &order.Category, &order.Price, &order.Stock)
+			if err != nil {
+				return nil, err
+			}
+			row3, err := db.Query(`select asset_id,file_path,file_type,added_at from product_assets where productid=$1`, value)
+			if err != nil {
+				return nil, err
+			}
+			defer row3.Close()
+			for row3.Next() {
+				var assetlist model.Assets
+				err := row3.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
+				if err != nil {
+					return nil, err
+				}
+				order.Assets = append(order.Assets, assetlist)
+			}
+			list.OrderDetails = append(list.OrderDetails, order)
+		}
+
+	}
+	return &list, err
+
 }
 
 func matched(productid int64, id *int) (int, int) {

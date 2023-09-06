@@ -46,6 +46,8 @@ func main() {
 	product.HandleFunc("/delete_asset", handler.HandlerDeleteAsset).Methods(http.MethodDelete)
 	product.HandleFunc("/filter", handler.HandlerFilterProduct).Methods(http.MethodPost)
 	product.HandleFunc("/order", handler.HandlerPlaceOrder).Methods(http.MethodPost)
+	product.HandleFunc("/orderlist", handler.HandlerOrderList).Methods(http.MethodGet)
+	product.HandleFunc("/order_data", handler.HandlerOrderdetails).Methods(http.MethodGet)
 
 	cart := product.PathPrefix("/cart").Subrouter()
 	cart.HandleFunc("/add", handler.HandleAddToCart).Methods(http.MethodPost)
