@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 
@@ -287,7 +286,7 @@ func HandleGetProductData(w http.ResponseWriter, r *http.Request) {
 		writeJson(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if productData != nil {
+	if productData.Price != 0 {
 
 		json.NewEncoder(w).Encode(productData)
 		return
@@ -319,16 +318,15 @@ func HandlerDeleteAsset(w http.ResponseWriter, r *http.Request) {
 func HandleAddToCart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	tokenString := getTokenStringFromRequest(r)
-	product := r.URL.Query().Get("productId")
 
-	id, err := strconv.ParseInt(product, 0, 64)
+	var decoder = schema.NewDecoder()
+	var body model.FilterProduct
+	err := decoder.Decode(&body, r.URL.Query())
 	if err != nil {
-		fmt.Println("a")
 		writeJson(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	err = service.AddTocart(id, tokenString)
+	err = service.AddTocart(body, tokenString)
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, err.Error())
 		return
@@ -356,10 +354,37 @@ func HandlerDeleteCart(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func HandlerUpdateQuantity(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	tokenString := getTokenStringFromRequest(r)
+	var decoder = schema.NewDecoder()
+	var body model.FilterProduct
+	err := decoder.Decode(&body, r.URL.Query())
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	err = service.UpdateQuantity(tokenString, body)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// json.NewEncoder(w).Encode("quantity updated")
+	writeJson(w, http.StatusOK, "quantity updated")
+
+}
+
 func HandlerPlaceOrder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	tokenString := getTokenStringFromRequest(r)
-	err := service.PlaceOrder(tokenString)
+	var decoder = schema.NewDecoder()
+	var body model.FilterProduct
+	err := decoder.Decode(&body, r.URL.Query())
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	err = service.PlaceOrder(tokenString, body)
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, err.Error())
 		return

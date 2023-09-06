@@ -118,6 +118,9 @@ type FilterProduct struct {
 	Size        int    `schema:"size"`
 	SortColumn  string `schema:"sortColumn"`
 	SortOrder   string `schema:"sortOrder"`
+	ProductId   int    `schema:"productId"`
+	Quantity    int    `schema:"quantity"`
+	CartId      int    `schema:"cartId"`
 }
 
 type UpdateAsset struct {
@@ -140,8 +143,7 @@ type CartList struct {
 
 type OrderDetails struct {
 	OrderId int `json:"orderId"`
-	ListedProducts
-	Assets []Assets
+	ProductData
 }
 
 type OrderData struct {

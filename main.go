@@ -45,7 +45,7 @@ func main() {
 	product.HandleFunc("/details", handler.HandleGetProductData).Methods(http.MethodGet)
 	product.HandleFunc("/delete_asset", handler.HandlerDeleteAsset).Methods(http.MethodDelete)
 	product.HandleFunc("/filter", handler.HandlerFilterProduct).Methods(http.MethodPost)
-	product.HandleFunc("/order", handler.HandlerPlaceOrder).Methods(http.MethodPost)
+	product.HandleFunc("/placeorder", handler.HandlerPlaceOrder).Methods(http.MethodPost)
 	product.HandleFunc("/orderlist", handler.HandlerOrderList).Methods(http.MethodGet)
 	product.HandleFunc("/order_data", handler.HandlerOrderdetails).Methods(http.MethodGet)
 
@@ -53,6 +53,7 @@ func main() {
 	cart.HandleFunc("/add", handler.HandleAddToCart).Methods(http.MethodPost)
 	cart.HandleFunc("/delete", handler.HandlerDeleteCart).Methods(http.MethodDelete)
 	cart.HandleFunc("/list", handler.HandlerCartList).Methods(http.MethodGet)
+	cart.HandleFunc("/update", handler.HandlerUpdateQuantity).Methods(http.MethodPut)
 
 	log.Fatal(http.ListenAndServe(":3000", r))
 
