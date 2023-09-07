@@ -13,6 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/lib/pq"
 	"github.com/perisynctechnologies/pms/model"
+	"github.com/perisynctechnologies/pms/utils"
 )
 
 func AddProduct(token string, body model.AddProduct) error {
@@ -454,7 +455,7 @@ func GetProduct(id int64) (*model.Singleproduct, error) {
 			}
 			data.Assets = append(data.Assets, assetlist)
 		}
-		
+
 	}
 	return &data, nil
 	// return nil, nil
@@ -674,73 +675,136 @@ func RemoveCart(cartId int64, token string) error {
 	return nil
 }
 
+// func CartList(token string, body model.FilterByProductId) (*model.CartList, error) {
+// 	id, err := VaildSign(token)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	query := "select productid,product_count,cartid,price from cart where userid=$1"
+// 	if body.Size == 0 {
+// 		body.Size = 10
+// 	}
+// 	offset := 0
+// 	if body.Page != 0 {
+
+// 		if body.Page > 1 {
+// 			offset = body.Size * (body.Page - 1)
+// 		}
+// 	}
+
+// 	query += fmt.Sprintf(" ORDER BY cartid DESC OFFSET %d LIMIT %d", offset, body.Size)
+
+// 	row, err := db.Query(query, id)
+
+// 	fmt.Println(query)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	var list model.CartList
+// 	list.TotalCount = 0
+// 	defer row.Close()
+// 	for row.Next() {
+// 		var body model.CartDetails
+// 		var product int
+// 		err := row.Scan(&product, &body.ProductCount, &body.ItemId, &body.Price)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		rows2, err := db.Query(`select product_id, product_name,description,brand,category,stock from product where product_id=$1`, product)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 		defer rows2.Close()
+// 		for rows2.Next() {
+// 			err := rows2.Scan(&body.ProductId, &body.ProductName, &body.Description, &body.Brand, &body.Category, &body.Stock)
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 			row2, err := db.Query(`select asset_id,file_path,file_type,added_at from product_assets where productid=$1`, product)
+// 			if err != nil {
+// 				return nil, err
+// 			}
+// 			defer row2.Close()
+// 			for row2.Next() {
+// 				var assetlist model.Assets
+// 				err := row2.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
+// 				if err != nil {
+// 					return nil, err
+// 				}
+
+// 				body.Assets = append(body.Assets, assetlist)
+
+// 			}
+
+// 		}
+// 		list.TotalCount++
+// 		list.CartData = append(list.CartData, body)
+// 	}
+// 	return &list, nil
+
+// }
 func CartList(token string, body model.FilterByProductId) (*model.CartList, error) {
 	id, err := VaildSign(token)
 	if err != nil {
 		return nil, err
 	}
-	query := "select productid,product_count,cartid,price from cart where userid=$1"
+	query := `
+        SELECT c.productid, c.product_count, c.cartid, c.price,
+               p.product_id, p.product_name, p.description, p.brand, p.category, p.stock
+        FROM cart c
+        JOIN product p ON c.productid = p.product_id
+        WHERE c.userid = $1
+        ORDER BY c.cartid DESC OFFSET $2 LIMIT $3
+    `
+
 	if body.Size == 0 {
 		body.Size = 10
 	}
 	offset := 0
-	if body.Page != 0 {
-
-		if body.Page > 1 {
-			offset = body.Size * (body.Page - 1)
-		}
+	if body.Page > 1 {
+		offset = body.Size * (body.Page - 1)
 	}
 
-	query += fmt.Sprintf(" ORDER BY cartid DESC OFFSET %d LIMIT %d", offset, body.Size)
-
-	row, err := db.Query(query, id)
-
-	fmt.Println(query)
+	rows, err := db.Query(query, id, offset, body.Size)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
 	var list model.CartList
 	list.TotalCount = 0
-	defer row.Close()
-	for row.Next() {
+
+	for rows.Next() {
 		var body model.CartDetails
-		var product int
-		err := row.Scan(&product, &body.ProductCount, &body.CartId, &body.Price)
+		err := rows.Scan(
+			&body.ProductId, &body.ProductCount, &body.ItemId, &body.Price,
+			&body.ProductId, &body.ProductName, &body.Description, &body.Brand, &body.Category, &body.Stock,
+		)
 		if err != nil {
 			return nil, err
 		}
-		rows2, err := db.Query(`select product_name,description,brand,category,stock from product where product_id=$1`, product)
+
+		// Fetch assets for this product (you can batch this too if needed)
+
+		row2, err := db.Query(`SELECT asset_id, file_path, file_type, added_at FROM product_assets WHERE productid = $1`, body.ProductId)
 		if err != nil {
 			return nil, err
 		}
-		defer rows2.Close()
-		for rows2.Next() {
-			err := rows2.Scan(&body.ProductName, &body.Description, &body.Brand, &body.Category, &body.Stock)
+		defer row2.Close()
+		for row2.Next() {
+			var assetlist model.Assets
+			err := row2.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
 			if err != nil {
 				return nil, err
 			}
-			row2, err := db.Query(`select asset_id,file_path,file_type,added_at from product_assets where productid=$1`, product)
-			if err != nil {
-				return nil, err
-			}
-			defer row2.Close()
-			for row2.Next() {
-				var assetlist model.Assets
-				err := row2.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
-				if err != nil {
-					return nil, err
-				}
 
-				body.Assets = append(body.Assets, assetlist)
-
-			}
-
+			body.Assets = append(body.Assets, assetlist)
 		}
+
 		list.TotalCount++
 		list.CartData = append(list.CartData, body)
 	}
 	return &list, nil
-
 }
 
 func PlaceOrder(token string, body model.FilterProduct) error {
@@ -748,15 +812,25 @@ func PlaceOrder(token string, body model.FilterProduct) error {
 	if err != nil {
 		return err
 	}
-	query := "SELECT cartid, productid,price,product_count FROM cart"
-	if strconv.Itoa(body.ProductId) != "" {
-		query += " where productid =" + strconv.Itoa(body.ProductId) + " and userid =" + strconv.Itoa(*id)
 
+	var query string
+	var args []interface{}
+
+	if body.ItemId != 0 {
+		query = "SELECT cartid, productid, price, product_count FROM cart WHERE cartid = $1 AND userid = $2"
+		args = append(args, body.ItemId, *id)
+	} else if len(body.Cart) != 0 {
+
+		query = "SELECT cartid, productid, price, product_count FROM cart WHERE cartid = ANY($1) AND userid = $2"
+		fmt.Println(body.Cart)
+
+		args = append(args, pq.Array(body.Cart), *id)
 	} else {
-		query += " where userid =" + strconv.Itoa(*id)
+		query = "SELECT cartid, productid, price, product_count FROM cart WHERE userid = $1"
+		args = append(args, *id)
 	}
 
-	rows, err := db.Query(query)
+	rows, err := db.Query(query, args...)
 	fmt.Println(query)
 	if err != nil {
 		return err
@@ -765,7 +839,7 @@ func PlaceOrder(token string, body model.FilterProduct) error {
 
 	var cartids []int
 	var products []int
-	var price []int
+
 	var product_count []int
 
 	for rows.Next() {
@@ -776,11 +850,16 @@ func PlaceOrder(token string, body model.FilterProduct) error {
 		}
 		cartids = append(cartids, cartid)
 		products = append(products, productid)
-		price = append(price, pricedata)
+		// price = append(price, pricedata)
 		product_count = append(product_count, productcount)
 	}
+
+	if len(cartids) == 0 {
+		return errors.New("cart not exsits")
+	}
+
 	if len(products) == 0 {
-		return errors.New("no items in the cart")
+		return errors.New("no items in cart")
 	}
 
 	if err := rows.Err(); err != nil {
@@ -790,55 +869,63 @@ func PlaceOrder(token string, body model.FilterProduct) error {
 	var stock []int
 	for _, v := range products {
 		var productstock int
-		err = db.QueryRow(`select stock from product where product_id=$1`, v).Scan(&productstock)
+		err = db.QueryRow(`SELECT stock FROM product WHERE product_id = $1`, v).Scan(&productstock)
 		if err != nil {
 			return err
 		}
 		stock = append(stock, productstock)
 	}
-	fmt.Println(stock)
 
-	for _, s := range stock {
+	for i, s := range stock {
 		if s <= 0 {
-			return fmt.Errorf("one or more products are out of stock")
+			return fmt.Errorf("product with ID %d is out of stock", products[i])
 		}
-		for _, q := range product_count {
-			if s < q {
-				return fmt.Errorf("available stock of product is %d", s)
-			}
+		if s < product_count[i] {
+			return fmt.Errorf("available stock of product with ID %d is %d", products[i], s)
 		}
-
 	}
 
-	cartidsArray := pq.Array(cartids)
-	productsArray := pq.Array(products)
-	priceArray := pq.Array(price)
+	_, err = db.Exec(`
+    INSERT INTO orders (cartid, userid, productsid, productname, pricesdata, description, category, brand, productcount,order_conformation)
+    SELECT
+        c.cartid,
+        $1,
+        c.productid,
+        p.product_name,
+        c.price,
+        p.description,
+        p.category,
+        p.brand,
+        c.product_count,
+		$2
+    FROM
+        cart c
+    JOIN
+        product p ON c.productid = p.product_id
+    WHERE
+        c.cartid = ANY($3) AND c.userid = $4
+`, id, utils.OrderStatus["placed"], pq.Array(cartids), *id)
 
-	_, err = db.Exec(`INSERT INTO orders (orderlist, userid, productid,prices) VALUES ($1, $2, $3,$4)`, cartidsArray, id, productsArray, priceArray)
 	if err != nil {
-		fmt.Println("error insert")
 		return err
 	}
 
-	for _, pid := range products {
-		for _, count := range product_count {
+	_, err = db.Exec(`INSERT INTO userorders (orderlist) VALUES ($1)`, pq.Array(cartids))
 
-			_, err := db.Exec(`UPDATE product SET stock = stock - $1 WHERE product_id = $2`, count, pid)
-			if err != nil {
+	if err != nil {
+		return err
+	}
 
-				return err
-			}
+	for i, pid := range products {
+		_, err := db.Exec(`UPDATE product SET stock = stock - $1 WHERE product_id = $2`, product_count[i], pid)
+		if err != nil {
+			return err
 		}
 
-		if _, err := db.Exec(`SELECT stock FROM product WHERE product_id = $1`, pid); err != nil {
-
-			return fmt.Errorf("stock not updated for product %d", pid)
+		_, err = db.Exec(`DELETE FROM cart WHERE productid = $1`, pid)
+		if err != nil {
+			return err
 		}
-
-		if _, err := db.Exec(`delete from cart where productid=$1`, pid); err != nil {
-			return fmt.Errorf("cart not deleted")
-		}
-
 	}
 
 	return nil
@@ -849,7 +936,7 @@ func UpdateQuantity(token string, body model.FilterProduct) error {
 	if err != nil {
 		return err
 	}
-	result, err := db.Exec(`update cart set product_count=$1 where cartid=$2 and userid=$3`, body.Quantity, body.CartId, id)
+	result, err := db.Exec(`update cart set product_count=$1 where cartid=$2 and userid=$3`, body.Quantity, body.ItemId, id)
 	if err != nil {
 		return err
 	}
@@ -865,70 +952,237 @@ func UpdateQuantity(token string, body model.FilterProduct) error {
 	return nil
 }
 
+func OrderRequest(token string, body model.FilterProduct) (*model.OrderRequest, error) {
+	id, err := VaildSign(token)
+	if err != nil {
+		return nil, err
+	}
+	var list model.OrderRequest
+	list.TotalPrice = 0
+	baseQuery := ` SELECT
+	o.orderid,
+	
+	o.description,
+	o.category,
+	o.productname,
+	o.brand,
+	o.productcount,
+	o.pricesdata,
+	o.order_conformation,
+	o.productsid,
+	u.first_name,
+	u.middle_name,
+	u.last_name,
+	u.mobile,
+	u.email
+FROM
+	orders o
+JOIN
+	product p ON o.productsid = p.product_id
+JOIN
+	userdata u ON o.userid = u.id
+WHERE
+	p.userid = $1`
+	if body.SortBy != "" {
+		var sort int
+		for key, val := range utils.OrderStatus {
+			if body.SortBy == key {
+				sort = val
+			}
+		}
+		// row, err := db.Query(`  and o.order_conformation=$2 `, id, sort)
+		baseQuery += " AND o.order_conformation = " + strconv.Itoa(sort)
+	}
+	row, err := db.Query(baseQuery, id)
+	if err != nil {
+		return nil, err
+	}
+	defer row.Close()
+	for row.Next() {
+		var order model.Orders
+		// var orderPlaceduser int
+		var orderstatus int
+		if err := row.Scan(
+			&order.OrderId,
+			&order.Description,
+			&order.Category,
+			&order.ProductName,
+			&order.Brand,
+			&order.Quantity,
+			&order.Price,
+			&orderstatus,
+			&order.ProductId,
+			&order.FirstName,
+			&order.MiddleName,
+			&order.LastName,
+			&order.MobileNumber,
+			&order.Email); err != nil {
+			return nil, err
+		}
+		for key, val := range utils.OrderStatus {
+			if orderstatus == val {
+				order.OrderStatus = key
+			}
+		}
+		row3, err := db.Query(`SELECT asset_id, file_path, file_type, added_at FROM product_assets WHERE productid = $1`, order.ProductId)
+		if err != nil {
+			return nil, err
+		}
+		defer row3.Close()
+		for row3.Next() {
+			var assetlist model.Assets
+			err := row3.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
+			if err != nil {
+				return nil, err
+			}
+			order.Assets = append(order.Assets, assetlist)
+		}
+		// row4, err := db.Query(`select first_name,middle_name,last_name,mobile,email from userdata where id=$1`, orderPlaceduser)
+		// if err != nil {
+		// 	return nil, err
+		// }
+		// defer row4.Close()
+		// for row4.Next() {
+		// 	if err := row4.Scan(&order.FirstName, &order.MiddleName, &order.LastName, &order.MobileNumber, &order.Email); err != nil {
+		// 		return nil, err
+		// 	}
+
+		// }
+		list.OrderDetails = append(list.OrderDetails, order)
+		list.TotalPrice += order.Price * order.Quantity
+	}
+	list.TotalCount = len(list.OrderDetails)
+	return &list, nil
+}
+
+func ChangeStatus(token string, orderId int64, status string) (string, error) {
+	id, err := VaildSign(token)
+	if err != nil {
+		return "", err
+	}
+	var orderexsits, userexsits, previoustatus int
+	err = db.QueryRow(`select o.orderid,p.userid,o.order_conformation from orders o join product p 
+	on o.productsid=p.product_id
+	where o.orderid=$1 and p.userid=$2 `, orderId, id).Scan(&orderexsits, &userexsits, &previoustatus)
+	if err != nil {
+		fmt.Println("here")
+		return "", err
+	}
+	if previoustatus == 3 || previoustatus == 2 {
+
+		value, err := conform(status)
+		if err != nil {
+			return "", err
+		}
+		if value != 3 && value != 0 {
+			_, err = db.Exec(`update orders set order_conformation=$1 where orderid=$2`, value, orderexsits)
+			if err != nil {
+
+				return "", err
+			}
+			if value == 2 {
+				return "order-rejected", nil
+			}
+
+		}
+	} else {
+		return "", fmt.Errorf("order already dispatched")
+	}
+	return "", nil
+
+}
+
+func conform(status string) (int, error) {
+	for key, value := range utils.OrderStatus {
+		if status == key {
+
+			return value, nil
+		}
+	}
+	return 0, fmt.Errorf("not a valid orderstatus")
+}
+
 func OrderDetails(orderid int64) (*model.OrderData, error) {
-	rows, err := db.Query(`SELECT  productid,prices FROM orders WHERE orderid = $1`, orderid)
+	// Query to fetch order details and associated product details
+	query := `
+        SELECT
+            productsid,
+            pricesdata,
+            productcount,
+            productname,
+            description,
+            brand,
+            category,
+            order_conformation
+        FROM
+            orders 
+       
+        WHERE
+            orderid = $1
+    `
+
+	rows, err := db.Query(query, orderid)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var productid []int64
-	var prices []int64
-	for rows.Next() {
 
-		var productidArray pq.Int64Array
-		var priceArray pq.Int64Array
-
-		if err := rows.Scan(&productidArray, &priceArray); err != nil {
-			return nil, errors.New("scan errror")
-		}
-
-		productid = append(productid, productidArray...)
-		prices = append(prices, priceArray...)
-	}
-	if len(productid) == 0 {
-		return nil, err
-	}
 	var order model.OrderData
-	// order.TotalCount = 0
-	order.TotalCount = len(productid)
+	order.TotalPrice = 0
 
-	for _, value := range productid {
+	for rows.Next() {
+		var OrderDetails model.ProductData
+		var conform int
 
-		rows2, err := db.Query(`select product_name,description,brand,category from product where product_id=$1`, value)
+		err := rows.Scan(
+			&OrderDetails.ProductId,
+			&OrderDetails.Price,
+			&OrderDetails.Quantity,
+			&OrderDetails.ProductName,
+			&OrderDetails.Description,
+			&OrderDetails.Brand,
+			&OrderDetails.Category,
+			&conform,
+		)
 		if err != nil {
 			return nil, err
 		}
-		defer rows2.Close()
-		for rows2.Next() {
-			var OrderDetails model.ProductData
-			err := rows2.Scan(&OrderDetails.ProductName, &OrderDetails.Description, &OrderDetails.Brand, &OrderDetails.Category)
-			if err != nil {
-				return nil, err
-			}
-			for _, values := range prices {
-				OrderDetails.Price = int(values)
-			}
-			row3, err := db.Query(`select asset_id,file_path,file_type,added_at from product_assets where productid=$1`, value)
-			if err != nil {
-				return nil, err
-			}
-			defer row3.Close()
-			for row3.Next() {
-				var assetlist model.Assets
-				err := row3.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
-				if err != nil {
-					return nil, err
-				}
 
-				OrderDetails.Assets = append(OrderDetails.Assets, assetlist)
-
+		// Map the order confirmation status to its string representation
+		for key, value := range utils.OrderStatus {
+			if conform == value {
+				OrderDetails.OrderStatus = key
 			}
-
-			order.ProductInfo = append(order.ProductInfo, OrderDetails)
-
 		}
 
+		// Calculate the total price for this product
+		order.TotalPrice += OrderDetails.Price * OrderDetails.Quantity
+
+		// Fetch product assets for this product
+		rows3, err := db.Query(`
+            SELECT asset_id, file_path, file_type, added_at
+            FROM product_assets
+            WHERE productid = $1
+        `, OrderDetails.ProductId)
+		if err != nil {
+			return nil, err
+		}
+		defer rows3.Close()
+
+		for rows3.Next() {
+			var assetlist model.Assets
+			err := rows3.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
+			if err != nil {
+				return nil, err
+			}
+
+			OrderDetails.Assets = append(OrderDetails.Assets, assetlist)
+		}
+
+		order.ProductInfo = append(order.ProductInfo, OrderDetails)
 	}
+
+	order.TotalCount = len(order.ProductInfo)
 	return &order, nil
 }
 
@@ -937,63 +1191,82 @@ func OrderList(token string) (*model.OrderList, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(`SELECT orderid, productid,prices FROM orders WHERE userid = $1`, id)
+
+	// Query to fetch order details and associated product details
+	query := `
+        SELECT
+            o.orderid,
+            o.productsid,
+            o.productcount,
+            o.pricesdata,
+            o.order_conformation,
+            o.productname,
+            o.description,
+            o.brand,
+            o.category
+        FROM
+            orders o
+      
+        WHERE
+            o.userid = $1
+    `
+
+	rows, err := db.Query(query, id)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var productid []int64
-	var order model.OrderDetails
 	var list model.OrderList
-	var pricelist []int64
+	list.TotalPrice = 0
+
 	for rows.Next() {
-
-		var productidArray pq.Int64Array
-		var priceArray pq.Int64Array
-
-		if err := rows.Scan(&order.OrderId, &productidArray, &priceArray); err != nil {
-			return nil, errors.New("scan errror")
-		}
-
-		productid = append(productid, productidArray...)
-		pricelist = append(pricelist, priceArray...)
-
-	}
-	list.TotalCount = len(productid)
-	for _, value := range productid {
-		rows2, err := db.Query(`select product_name,description,brand,category from product where product_id=$1`, value)
+		var order model.OrderDetails
+		var productstatus int
+		err := rows.Scan(
+			&order.OrderId,
+			&order.ProductId,
+			&order.Quantity,
+			&order.Price,
+			&productstatus,
+			&order.ProductName,
+			&order.Description,
+			&order.Brand,
+			&order.Category,
+		)
 		if err != nil {
 			return nil, err
 		}
-		defer rows2.Close()
-		for rows2.Next() {
-			err := rows2.Scan(&order.ProductName, &order.Description, &order.Brand, &order.Category)
-			if err != nil {
-				return nil, err
+		for key, val := range utils.OrderStatus {
+			if productstatus == val {
+				order.OrderStatus = key
 			}
-			for _, values := range pricelist {
-				order.Price = int(values)
-			}
-			row3, err := db.Query(`select asset_id,file_path,file_type,added_at from product_assets where productid=$1`, value)
-			if err != nil {
-				return nil, err
-			}
-			defer row3.Close()
-			for row3.Next() {
-				var assetlist model.Assets
-				err := row3.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
-				if err != nil {
-					return nil, err
-				}
-				order.Assets = append(order.Assets, assetlist)
-			}
-			list.OrderDetails = append(list.OrderDetails, order)
 		}
 
-	}
-	return &list, err
+		rows3, err := db.Query(`
+            SELECT asset_id, file_path, file_type, added_at
+            FROM product_assets
+            WHERE productid = $1
+        `, order.ProductId)
+		if err != nil {
+			return nil, err
+		}
+		defer rows3.Close()
+		for rows3.Next() {
+			var assetlist model.Assets
+			err := rows3.Scan(&assetlist.AssetId, &assetlist.FilePath, &assetlist.AssetType, &assetlist.Added_at)
+			if err != nil {
+				return nil, err
+			}
+			order.Assets = append(order.Assets, assetlist)
+		}
 
+		list.OrderDetails = append(list.OrderDetails, order)
+		list.TotalPrice += order.Price * order.Quantity
+	}
+
+	list.TotalCount = len(list.OrderDetails)
+	return &list, nil
 }
 
 func matched(productid int64, id *int) (int, int) {

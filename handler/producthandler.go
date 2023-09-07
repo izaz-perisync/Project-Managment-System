@@ -203,7 +203,7 @@ func HandlerAddAssets(w http.ResponseWriter, r *http.Request) {
 	productId := r.FormValue("productId")
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		writeJson(w, http.StatusBadRequest, "missing file field")
+		writeJson(w, http.StatusBadRequest, "product not found")
 		return
 	}
 	defer file.Close()
@@ -319,9 +319,9 @@ func HandleAddToCart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	tokenString := getTokenStringFromRequest(r)
 
-	var decoder = schema.NewDecoder()
 	var body model.FilterProduct
-	err := decoder.Decode(&body, r.URL.Query())
+
+	err := json.NewDecoder(r.Body).Decode(&body)
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, err.Error())
 		return
@@ -338,7 +338,7 @@ func HandleAddToCart(w http.ResponseWriter, r *http.Request) {
 func HandlerDeleteCart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	tokenString := getTokenStringFromRequest(r)
-	cartId := r.URL.Query().Get("cartId")
+	cartId := r.URL.Query().Get("itemId")
 
 	id, err := strconv.ParseInt(cartId, 0, 64)
 	if err != nil {
@@ -377,13 +377,13 @@ func HandlerUpdateQuantity(w http.ResponseWriter, r *http.Request) {
 func HandlerPlaceOrder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	tokenString := getTokenStringFromRequest(r)
-	var decoder = schema.NewDecoder()
 	var body model.FilterProduct
-	err := decoder.Decode(&body, r.URL.Query())
+	err := json.NewDecoder(r.Body).Decode(&body)
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
 	err = service.PlaceOrder(tokenString, body)
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, err.Error())
@@ -427,6 +427,52 @@ func HandlerOrderdetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJson(w, http.StatusNoContent, nil)
+
+}
+
+func HandlerVendorOrdersList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	tokenString := getTokenStringFromRequest(r)
+	var decoder = schema.NewDecoder()
+	var body model.FilterProduct
+	err := decoder.Decode(&body, r.URL.Query())
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	list, err := service.OrderRequest(tokenString, body)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if list.TotalCount != 0 {
+		json.NewEncoder(w).Encode(list)
+		return
+	}
+	writeJson(w, http.StatusNoContent, nil)
+
+}
+
+func HandlerChangeOrderList(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	tokenString := getTokenStringFromRequest(r)
+	status := r.URL.Query().Get("status")
+	orderId := r.URL.Query().Get("orderId")
+	id, err := strconv.ParseInt(orderId, 0, 64)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	data, err := service.ChangeStatus(tokenString, id, status)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if data != "" {
+		writeJson(w, http.StatusOK, data)
+		return
+	}
+	writeJson(w, http.StatusOK, "orderconformed")
 
 }
 

@@ -29,6 +29,7 @@ type LogUser struct {
 	CreatedAt  time.Time `json:"createdAt"`
 	Token      string    `json:"token"`
 }
+
 type Claims struct {
 	UserId int `json:"userId"`
 	jwt.RegisteredClaims
@@ -71,6 +72,7 @@ type Assets struct {
 	Added_at  time.Time `json:"added_At"`
 }
 type ListWithoutStock struct {
+	ProductId   int    `json:"productId"`
 	ProductName string `json:"productName"`
 	Description string `json:"description"`
 	Brand       string `json:"brand"`
@@ -90,7 +92,9 @@ type Singleproduct struct {
 }
 type ProductData struct {
 	ListWithoutStock
-	Assets []Assets
+	Quantity    int `json:"quantity"`
+	Assets      []Assets
+	OrderStatus string `json:"orderStatus"`
 }
 
 type ListProducts struct {
@@ -120,7 +124,9 @@ type FilterProduct struct {
 	SortOrder   string `schema:"sortOrder"`
 	ProductId   int    `schema:"productId"`
 	Quantity    int    `schema:"quantity"`
-	CartId      int    `schema:"cartId"`
+	ItemId      int    `schema:"itemId"`
+	Cart        []int  `schema:"cart"`
+	SortBy      string `schema:"sortBy"`
 }
 
 type UpdateAsset struct {
@@ -130,7 +136,8 @@ type UpdateAsset struct {
 }
 
 type CartDetails struct {
-	CartId int `json:"cartid"`
+	ItemId    int `json:"itemId"`
+	ProductId int `json:"productId"`
 	ListedProducts
 	ProductCount int `json:"productCount"`
 	Assets       []Assets
@@ -145,21 +152,33 @@ type OrderDetails struct {
 	OrderId int `json:"orderId"`
 	ProductData
 }
+type Orders struct {
+	OrderDetails
+	ProductData
+	FirstName    string `json:"firstName" `
+	MiddleName   string `json:"middleName"`
+	LastName     string `json:"lastName"`
+	MobileNumber int    `json:"mobileNumber"`
+	Email        string `json:"email" `
+}
 
 type OrderData struct {
 	TotalCount  int `json:"totalCount"`
+	TotalPrice  int `json:"totalPrice"`
 	ProductInfo []ProductData
 }
 
 type OrderList struct {
 	TotalCount   int `json:"totalCount"`
+	TotalPrice   int `json:"totalPrice"`
 	OrderDetails []OrderDetails
 }
 
-// if productName == "" || description == "" || brand == "" || category == "" {
-// 	writeJson(w, http.StatusBadRequest, "all fields are required")
-// 	return
-// }
+type OrderRequest struct {
+	TotalCount   int `json:"totalCount"`
+	TotalPrice   int `json:"totalPrice"`
+	OrderDetails []Orders
+}
 
 func (u *UpdateAsset) Validate() error {
 	if strconv.Itoa(u.AssetId) == "" {

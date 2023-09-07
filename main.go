@@ -49,6 +49,10 @@ func main() {
 	product.HandleFunc("/orderlist", handler.HandlerOrderList).Methods(http.MethodGet)
 	product.HandleFunc("/order_data", handler.HandlerOrderdetails).Methods(http.MethodGet)
 
+	vendor := api.PathPrefix("/vendor").Subrouter()
+	vendor.HandleFunc("/requestlist", handler.HandlerVendorOrdersList).Methods(http.MethodGet)
+	vendor.HandleFunc("/conform", handler.HandlerChangeOrderList).Methods(http.MethodPut)
+
 	cart := product.PathPrefix("/cart").Subrouter()
 	cart.HandleFunc("/add", handler.HandleAddToCart).Methods(http.MethodPost)
 	cart.HandleFunc("/delete", handler.HandlerDeleteCart).Methods(http.MethodDelete)
