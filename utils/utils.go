@@ -1,24 +1,23 @@
 package utils
 
 const (
-	Placed = 3
-	Reject = 2
-	Accept = 1
+	Dispatch  = 5
+	Delivered = 4
+	Placed    = 3
+	Reject    = 2
+	Accept    = 1
 )
 
-var OrderStatus = map[string]int{
-	"placed": Placed,
-	"Reject": Reject,
-	"Accept": Accept,
+var Active = map[string]int{
+	"placed":   Placed,
+	"dispatch": Dispatch,
+	"accept":   Accept,
+	"reject":   Reject,
+	"deliver":  Delivered,
 }
 
-// func ValidRole(val int) (string, error) {
-// 	for key, value := range utils.Roles {
-// 		if val == value {
+var OrderStatus = map[string]any{
+	"Active": "Active",
+	"Closed": "Closed",
+}
 
-// 			return key, nil
-// 		}
-// 	}
-// 	return "", fmt.Errorf("not found")
-
-// }

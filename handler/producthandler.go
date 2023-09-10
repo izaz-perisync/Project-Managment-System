@@ -472,7 +472,7 @@ func HandlerChangeOrderList(w http.ResponseWriter, r *http.Request) {
 		writeJson(w, http.StatusOK, data)
 		return
 	}
-	writeJson(w, http.StatusOK, "orderconformed")
+	writeJson(w, http.StatusOK, data)
 
 }
 

@@ -129,6 +129,10 @@ type FilterProduct struct {
 	SortBy      string `schema:"sortBy"`
 }
 
+type OrderDispatch struct {
+	OrderId int `json:"orderId"`
+}
+
 type UpdateAsset struct {
 	AssetId  int    `json:"assetId"`
 	FileDate []byte `json:"fileData"`
