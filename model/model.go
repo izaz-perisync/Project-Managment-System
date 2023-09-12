@@ -92,7 +92,8 @@ type Singleproduct struct {
 }
 type ProductData struct {
 	ListWithoutStock
-	Quantity    int `json:"quantity"`
+	Quantity    int       `json:"quantity"`
+	OrderedAt   time.Time `json:"orderedAt"`
 	Assets      []Assets
 	OrderStatus string `json:"orderStatus"`
 }
@@ -100,6 +101,14 @@ type ProductData struct {
 type ListProducts struct {
 	TotalCount  int `json:"totalCount"`
 	ProductList []ProductDetails
+}
+
+type ProductJson struct {
+	ProductName string `json:"productName"`
+	Description string `json:"description"`
+	Brand       string `json:"brand"`
+	Category    string `json:"category"`
+	Price       int    `json:"price"`
 }
 
 type FilterByProductId struct {
@@ -153,17 +162,23 @@ type CartList struct {
 }
 
 type OrderDetails struct {
-	OrderId int `json:"orderId"`
+	OrderId     int `json:"orderId"`
+	OrderItemId int `json:"orderItemId"`
 	ProductData
 }
 type Orders struct {
 	OrderDetails
 	ProductData
+	Userdetails Userdetails
+}
+type Userdetails struct {
 	FirstName    string `json:"firstName" `
 	MiddleName   string `json:"middleName"`
 	LastName     string `json:"lastName"`
 	MobileNumber int    `json:"mobileNumber"`
 	Email        string `json:"email" `
+	AddressId    int    `json:"addressId"`
+	Address      Address
 }
 
 type OrderData struct {
@@ -173,15 +188,28 @@ type OrderData struct {
 }
 
 type OrderList struct {
-	TotalCount   int `json:"totalCount"`
-	TotalPrice   int `json:"totalPrice"`
+	TotalCount int `json:"totalCount"`
+	TotalPrice int `json:"totalPrice"`
+
 	OrderDetails []OrderDetails
 }
 
 type OrderRequest struct {
-	TotalCount   int `json:"totalCount"`
+	TotalCount int `json:"totalCount"`
+
 	TotalPrice   int `json:"totalPrice"`
 	OrderDetails []Orders
+}
+
+type Address struct {
+	Latitude       float64 `json:"latitude"`
+	Longitude      float64 `json:"longitude"`
+	Street_Address string  `json:"street_address"`
+	City           string  `json:"city"`
+	State          string  `json:"state"`
+	PostalCode     int     `json:"postalCode"`
+	Country        string  `json:"country"`
+	Label          string  `json:"label"`
 }
 
 func (u *UpdateAsset) Validate() error {
@@ -290,6 +318,33 @@ func (a *UpdateProduct) Validate() error {
 
 	return nil
 }
+
+func (a *Address) Validate() error {
+	if (a.Longitude) == 0 {
+		return fmt.Errorf("longitude cannot empty")
+	}
+	if a.Latitude == 0 {
+		return fmt.Errorf("latitude cannot empty")
+	}
+	if strconv.Itoa(a.PostalCode) == "" {
+		return fmt.Errorf("postalcode cannot be empty")
+	}
+	if a.Label == "" {
+		return fmt.Errorf("please provide label for given address")
+	}
+	if a.State == "" {
+		return fmt.Errorf("please provide state details")
+	}
+	if a.City == "" {
+		return fmt.Errorf("please provide city details")
+	}
+	if a.Country == "" {
+		return fmt.Errorf("please provide country details")
+	}
+	return nil
+
+}
+
 func isValidEmail(email string) bool {
 	pattern := `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`
 	re := regexp.MustCompile(pattern)

@@ -8,16 +8,15 @@ const (
 	Accept    = 1
 )
 
-var Active = map[string]int{
-	"placed":   Placed,
-	"dispatch": Dispatch,
-	"accept":   Accept,
-	"reject":   Reject,
-	"deliver":  Delivered,
+var Active = map[string]string{
+	"placed":   "placed",
+	"dispatch": "dispatch",
+	"accept":   "accept",
+	"reject":   "reject",
+	"deliver":  "deliver",
 }
 
 var OrderStatus = map[string]any{
 	"Active": "Active",
 	"Closed": "Closed",
 }
-

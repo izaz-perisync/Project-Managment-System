@@ -51,3 +51,21 @@ func HandlerLogin(w http.ResponseWriter, r *http.Request) {
 	writeJson(w, http.StatusNoContent, "no rows found")
 
 }
+
+func HandlerUserAddress(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("content-type", "application/json")
+	tokenstring := getTokenStringFromRequest(r)
+	var body model.Address
+	err := json.NewDecoder(r.Body).Decode(&body)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	err = service.AddAddress(tokenstring, body)
+	if err != nil {
+		writeJson(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJson(w, http.StatusCreated, "Address Added")
+
+}

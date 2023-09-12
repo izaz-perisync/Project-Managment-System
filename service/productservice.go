@@ -1,7 +1,7 @@
 package service
 
 import (
-	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/lib/pq"
 	"github.com/perisynctechnologies/pms/model"
 	"github.com/perisynctechnologies/pms/utils"
 )
@@ -612,17 +611,17 @@ func AddTocart(body model.FilterProduct, token string) error {
 		return errors.New("product not found")
 	}
 
-	if stock <= 0 {
-		return errors.New("product-out-of-stock")
-	}
+	// if stock <= 0 {
+	// 	return errors.New("product-out-of-stock")
+	// }
 
 	count, cartid := matched(int64(body.ProductId), id)
 
-	if body.Quantity > stock || count > stock {
-		fmt.Println(body.Quantity)
-		a := fmt.Sprintf("sorry! We  have any only %d units for this item", stock)
-		return errors.New(a)
-	}
+	// if body.Quantity > stock || count > stock {
+	// 	fmt.Println(body.Quantity)
+	// 	a := fmt.Sprintf("sorry! We  have any only %d units for this item", stock)
+	// 	return errors.New(a)
+	// }
 
 	if count > 0 && body.Quantity == 0 {
 
@@ -741,36 +740,40 @@ func CartList(token string, body model.FilterByProductId) (*model.CartList, erro
 	return &list, nil
 }
 
-func PlaceOrder(token string, body model.FilterProduct) error {
+func PlaceOrder(token string) error {
 	id, err := VaildSign(token)
 	if err != nil {
 		return err
 	}
+	tx, err := db.Begin()
+	if err != nil {
 
-	var query string
-	var args []interface{}
-
-	if body.ItemId != 0 {
-		query = "SELECT cartid, productid, price, product_count FROM cart WHERE cartid = $1 AND userid = $2"
-		args = append(args, body.ItemId, *id)
-	} else if len(body.Cart) != 0 {
-
-		query = "SELECT cartid, productid, price, product_count FROM cart WHERE cartid = ANY($1) AND userid = $2"
-		fmt.Println(body.Cart)
-
-		args = append(args, pq.Array(body.Cart), *id)
-	} else {
-		query = "SELECT cartid, productid, price, product_count FROM cart WHERE userid = $1"
-		args = append(args, *id)
+		return err
 	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+		}
+	}()
+	var addressid int
+	err = db.QueryRow(`select address_id from address_data where user_id=$1`, id).Scan(&addressid)
+	if err != nil {
 
-	rows, err := db.Query(query, args...)
+		return fmt.Errorf("please provide address")
+	}
+	fmt.Println("addressid", addressid, "userid", *id)
+
+	var args []interface{}
+	query := "SELECT cartid, productid, price, product_count FROM cart WHERE userid = $1"
+	args = append(args, *id)
+	rows, err := tx.Query(query, args...)
 	fmt.Println(query)
 	if err != nil {
+		tx.Rollback()
+
 		return err
 	}
 	defer rows.Close()
-
 	var cartids []int
 	var products []int
 
@@ -780,6 +783,8 @@ func PlaceOrder(token string, body model.FilterProduct) error {
 		var cartid, productid, pricedata, productcount int
 
 		if err := rows.Scan(&cartid, &productid, &pricedata, &productcount); err != nil {
+			tx.Rollback()
+
 			return err
 		}
 		cartids = append(cartids, cartid)
@@ -787,24 +792,24 @@ func PlaceOrder(token string, body model.FilterProduct) error {
 		// price = append(price, pricedata)
 		product_count = append(product_count, productcount)
 	}
-
 	if len(cartids) == 0 {
-		return errors.New("cart not exsits")
+		tx.Rollback()
+
+		return errors.New("cart is empty")
 	}
 
 	if len(products) == 0 {
-		return errors.New("no items in cart")
-	}
+		tx.Rollback()
 
-	if err := rows.Err(); err != nil {
-		return err
+		return errors.New("few products are out-of-stock please update cart")
 	}
-
 	var stock []int
 	for _, v := range products {
 		var productstock int
-		err = db.QueryRow(`SELECT stock FROM product WHERE product_id = $1`, v).Scan(&productstock)
+		err = tx.QueryRow(`SELECT stock FROM product WHERE product_id = $1`, v).Scan(&productstock)
 		if err != nil {
+			tx.Rollback()
+
 			return err
 		}
 		stock = append(stock, productstock)
@@ -812,118 +817,126 @@ func PlaceOrder(token string, body model.FilterProduct) error {
 
 	for i, s := range stock {
 		if s <= 0 {
+			tx.Rollback()
+
 			return fmt.Errorf("product with ID %d is out of stock", products[i])
 		}
 		if s < product_count[i] {
+			tx.Rollback()
+
 			return fmt.Errorf("available stock of product with ID %d is %d", products[i], s)
 		}
 	}
 
-	_, err = db.Exec(`
-    INSERT INTO orders (cartid, userid, productsid, productname, pricesdata, description, category, brand, productcount,order_conformation)
-    SELECT
-        c.cartid,
-        $1,
-        c.productid,
-        p.product_name,
-        c.price,
-        p.description,
-        p.category,
-        p.brand,
-        c.product_count,
-		$2
-    FROM
-        cart c
-    JOIN
-        product p ON c.productid = p.product_id
-    WHERE
-        c.cartid = ANY($3) AND c.userid = $4
-`, id, utils.OrderStatus["Active"], pq.Array(cartids), *id)
-
+	var order_id int
+	err = db.QueryRow(`insert into orders(user_id,created_at,order_status,updated_at) values ($1,$2,$3,$4) returning order_id`, id, time.Now(), utils.OrderStatus["Active"], time.Now()).Scan(&order_id)
 	if err != nil {
+		tx.Rollback()
+
 		return err
 	}
-
-	var orderInfo []struct {
-		OrderID int
-		UserID  int
+	var item_info []struct {
+		OrderID     int
+		UserID      int
+		ProductId   int
+		VendorId    int
+		ProductName string
+		Description string
+		Brand       string
+		Category    string
+		Price       int
+		Quantity    int
 	}
 
-	orderids, err := db.Query(`SELECT orderid, userid FROM orders WHERE userid = $1`, *id)
+	productinfo, err := tx.Query(`select o.order_id,o.user_id,
+	 p.product_id,p.product_name, 
+	p.description, p.brand, p.category,p.price,p.userid,c.product_count
+	  from cart c join orders o on c.userid=o.user_id 
+	  JOIN product p ON p.product_id = c.productid
+	  where o.user_id = $1 and o.order_id=$2`, *id, order_id)
 	if err != nil {
+		fmt.Println("er1")
+		tx.Rollback()
+
 		return err
 	}
-	defer orderids.Close()
-	for orderids.Next() {
+	defer productinfo.Close()
+	for productinfo.Next() {
 		var info struct {
-			OrderID int
-			UserID  int
+			OrderID     int
+			UserID      int
+			ProductId   int
+			VendorId    int
+			ProductName string
+			Description string
+			Brand       string
+			Category    string
+			Price       int
+			Quantity    int
 		}
-		err := orderids.Scan(&info.OrderID, &info.UserID)
+		err := productinfo.Scan(&info.OrderID, &info.UserID, &info.ProductId, &info.ProductName, &info.Description, &info.Brand, &info.Category, &info.Price, &info.VendorId, &info.Quantity)
 		if err != nil {
+			fmt.Println("er2")
+			tx.Rollback()
+
 			return err
 		}
-		var existingOrderID int
-		err = db.QueryRow(`SELECT orderitemid FROM userorders WHERE orderitemid = $1 AND userid = $2`, info.OrderID, info.UserID).Scan(&existingOrderID)
-		if err != nil && err != sql.ErrNoRows {
-			return err
-		}
-		if info.OrderID != existingOrderID {
 
-			orderInfo = append(orderInfo, info)
-			fmt.Println(orderInfo, existingOrderID)
-
-			// orderInfo = append(orderInfo[:index], orderInfo[index+1:]...)
-		}
+		item_info = append(item_info, info)
+		fmt.Println("len", len(item_info))
 	}
-
-	useridToOrderID := make(map[int]int)
-	var newOrderid = 1
-
-	for _, info := range orderInfo {
-		// If we have a new userid, increment the orderid
-		if info.UserID != *id {
-			newOrderid++
+	for _, info := range item_info {
+		fmt.Println("item info22", item_info)
+		productDetails := model.ListWithoutStock{
+			ProductId:   info.ProductId,
+			ProductName: info.ProductName,
+			Description: info.Description,
+			Brand:       info.Brand,
+			Category:    info.Category,
+			Price:       info.Price,
 		}
-		fmt.Println("1array", orderInfo)
-		useridToOrderID[info.UserID] = newOrderid
-
-		fmt.Println("pending list", orderInfo)
-
-		// Continue with the same orderid for the current userid
-		_, err = db.Exec(`INSERT INTO userorders (orderitemid, productid, conformation_status, price, description, brand, category, orderid, userid,product_count,productname)
-							SELECT
-								orderid,
-								productsid,
-								$1,
-								pricesdata,
-								description,
-								brand,
-								category,
-								$2,
-								userid,
-								productcount,
-								productname
-							FROM
-								orders
-							WHERE
-								orderid = $3`, utils.Active["placed"], newOrderid, info.OrderID)
-
+		productDetailsJSON, err := json.Marshal(productDetails)
 		if err != nil {
+			fmt.Println("er4")
+			tx.Rollback()
+
 			return err
 		}
-	}
+		_, err = tx.Exec(`insert into orderitems (order_id,item_info,quantity,vendor_id,item_order_status) 
+		values($1,$2,$3,$4,$5) `, info.OrderID, productDetailsJSON, info.Quantity, info.VendorId, utils.Active["placed"])
+		if err != nil {
+			fmt.Println("err", err)
+			tx.Rollback()
 
+			return err
+		}
+
+	}
 	for i, pid := range products {
-		_, err := db.Exec(`UPDATE product SET stock = stock - $1 WHERE product_id = $2`, product_count[i], pid)
+		fmt.Println("product_count", product_count[i])
+		_, err := tx.Exec(`UPDATE product SET stock = stock - $1 WHERE product_id = $2`, product_count[i], pid)
 		if err != nil {
+			fmt.Println("er5")
+			tx.Rollback()
+
 			return err
 		}
 
-		_, err = db.Exec(`DELETE FROM cart WHERE productid = $1`, pid)
+		_, err = tx.Exec(`DELETE FROM cart WHERE productid = $1`, pid)
 		if err != nil {
+			fmt.Println("er6")
+			tx.Rollback()
+
 			return err
 		}
+	}
+
+	fmt.Println("data", item_info)
+	err = tx.Commit()
+	if err != nil {
+		fmt.Println("er7")
+		tx.Rollback()
+		return err
 	}
 
 	return nil
@@ -959,35 +972,43 @@ func OrderRequest(token string, body model.FilterProduct) (*model.OrderRequest, 
 	list.TotalPrice = 0
 
 	baseQuery := `
-	select 
-	r.orderitemid,
-	r.description,
-	r.category,
-	r.productname,
-	r.brand,
-	r.product_count,
-	r.price,
-	r.conformation_status,
-	r.productid,
-			u.first_name,
-		u.middle_name,
-		u.last_name,
-		u.mobile,
-		u.email
-			from userorders r
-			join product p on p.product_id=r.productid 
-			join 
-			userdata u on u.id=p.userid 
-			where u.id=$1`
+	SELECT 
+    r.order_id,
+    r.order_item_id,
+    r.quantity ,
+    r.item_order_status ,
+    r.item_info,
+	o.created_at,
+    u.first_name,
+    u.middle_name,
+    u.last_name,
+    u.mobile,
+    u.email,
+	a.address_id,
+	a.street_address,
+   a.city,
+   a.state,
+   a.postal_code,
+    a.country,
+    a.label,
+   a.latitude,
+  a.longitude
+
+FROM orderitems r
+join orders o on o.order_id =r.order_id  
+JOIN userdata u ON u.id = o.user_id  
+JOIN address_data a on a.user_id=o.user_id
+where r.vendor_id  = $1;
+`
 	if body.SortBy != "" {
-		var sort int
+		var sort string
 		for key, val := range utils.Active {
 			if body.SortBy == key {
 				sort = val
 			}
 		}
 
-		baseQuery += " AND r.conformation_status = " + strconv.Itoa(sort)
+		baseQuery += " AND r.order_status = " + (sort)
 	}
 	row, err := db.Query(baseQuery, id)
 	if err != nil {
@@ -997,22 +1018,32 @@ func OrderRequest(token string, body model.FilterProduct) (*model.OrderRequest, 
 	for row.Next() {
 		var order model.Orders
 		// var orderPlaceduser int
-		var orderstatus int
+		var productDetailsJSON []byte
+		var orderstatus string
 		if err := row.Scan(
+
 			&order.OrderId,
-			&order.Description,
-			&order.Category,
-			&order.ProductName,
-			&order.Brand,
+			&order.OrderItemId,
+
 			&order.Quantity,
-			&order.Price,
+
 			&orderstatus,
-			&order.ProductId,
-			&order.FirstName,
-			&order.MiddleName,
-			&order.LastName,
-			&order.MobileNumber,
-			&order.Email); err != nil {
+			&productDetailsJSON,
+			&order.ProductData.OrderedAt,
+			&order.Userdetails.FirstName,
+			&order.Userdetails.MiddleName,
+			&order.Userdetails.LastName,
+			&order.Userdetails.MobileNumber,
+			&order.Userdetails.Email,
+			&order.Userdetails.AddressId,
+			&order.Userdetails.Address.Street_Address,
+			&order.Userdetails.Address.City,
+			&order.Userdetails.Address.State,
+			&order.Userdetails.Address.PostalCode,
+			&order.Userdetails.Address.Country,
+			&order.Userdetails.Address.Label,
+			&order.Userdetails.Address.Latitude,
+			&order.Userdetails.Address.Longitude); err != nil {
 			return nil, err
 		}
 		for key, val := range utils.Active {
@@ -1020,6 +1051,11 @@ func OrderRequest(token string, body model.FilterProduct) (*model.OrderRequest, 
 				order.OrderStatus = key
 			}
 		}
+		var productDetails model.ListWithoutStock
+		if err := json.Unmarshal(productDetailsJSON, &productDetails); err != nil {
+			return nil, err
+		}
+		order.ProductData.ListWithoutStock = productDetails
 		row3, err := db.Query(`SELECT asset_id, file_path, file_type, added_at FROM product_assets WHERE productid = $1`, order.ProductId)
 		if err != nil {
 			return nil, err
@@ -1046,10 +1082,13 @@ func ChangeStatus(token string, orderId int64, status string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var orderexsits, userexsits, previoustatus int
-	err = db.QueryRow(`select o.orderitemid,p.userid,o.conformation_status from userorders o join product p 
-	on o.productid=p.product_id
-	where o.orderitemid=$1 and p.userid=$2 `, orderId, id).Scan(&orderexsits, &userexsits, &previoustatus)
+	var orderexsits, userexsits, productcount, productId, orderid int
+	var previoustatus string
+	err = db.QueryRow(`SELECT o.order_item_id, p.userid, o.item_order_status,o.quantity,(o.item_info->>'productId')::int,o.order_id
+	FROM orderitems o
+	JOIN product p ON (o.item_info->>'productId')::int = p.product_id
+	WHERE o.order_item_id = $1 AND p.userid = $2;
+	 `, orderId, id).Scan(&orderexsits, &userexsits, &previoustatus, &productcount, &productId, &orderid)
 	if err != nil {
 		fmt.Println("here")
 		return "error in query", err
@@ -1059,55 +1098,72 @@ func ChangeStatus(token string, orderId int64, status string) (string, error) {
 	if err != nil {
 		return "error in status", err
 	}
-	if previoustatus == 3 || previoustatus == 2 {
+	if previoustatus == "placed" || previoustatus == "reject" {
 		fmt.Println("came inside", previoustatus, value)
-		if value == 1 {
+		if value == "accept" {
 
-			_, err = db.Exec(`update userorders set conformation_status=$1 where orderitemid=$2`, value, orderexsits)
+			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2`, value, orderexsits)
 			if err != nil {
 
 				return "", fmt.Errorf("error in update userorders value1")
 			}
-			_, err = db.Exec(`update orders set order_conformation=$1 where orderid=$2`, utils.OrderStatus["Active"], orderexsits)
+			_, err = db.Exec(`update orders set order_status=$1,updated_at=$2 where order_id=$3`, utils.OrderStatus["Active"], time.Now(), orderid)
 			if err != nil {
 
 				return "", fmt.Errorf("error in orders val1")
 			}
 			return "order accepted", nil
-		} else if value == 2 {
-			_, err = db.Exec(`update userorders set conformation_status=$1 where orderitemid=$2`, value, orderexsits)
+		} else if value == "reject" {
+			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2`, value, orderexsits)
 			if err != nil {
 
 				return "", fmt.Errorf("error in update userorders value2")
 			}
-			_, err = db.Exec(`update orders set order_conformation=$1 where orderid=$2`, utils.OrderStatus["Closed"], orderexsits)
+			_, err = db.Exec(`update orders set order_status=$1,updated_at=$2 where order_id=$3`, utils.OrderStatus["Closed"], time.Now(), orderid)
 			if err != nil {
 
 				return "", fmt.Errorf("error in update orders val2")
 			}
+			_, err := db.Exec(`update product set stock=stock+$1 where product_id =$2`, productcount, productId)
+			if err != nil {
+				fmt.Println("update stock err")
+
+				return "", fmt.Errorf("error in update orders val2")
+			}
+
 			return "order rejected", nil
 
 		} else {
 			return "", fmt.Errorf("please check the order status")
 		}
 
-	} else if previoustatus == 1 {
-		if value == 5 {
+	} else if previoustatus == "accept" {
+		if value == "dispatch" {
 
-			_, err = db.Exec(`update userorders set conformation_status=$1 where orderitemid=$2`, value, orderexsits)
+			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2`, value, orderexsits)
 			if err != nil {
 
-				return "error in update userorders value5 ", err
+				return "error in update orderitems value5 ", err
+			}
+			_, err = db.Exec(`update orders set updated_at=$1 where order_id=$2`, time.Now(), orderid)
+			if err != nil {
+
+				return "", fmt.Errorf("error in update orders val2")
 			}
 			return "order dispatched", nil
 
-		} else if value == 2 {
-			_, err = db.Exec(`update userorders set conformation_status=$1 where orderitemid=$2`, value, orderexsits)
+		} else if value == "reject" {
+			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2`, value, orderexsits)
 			if err != nil {
 
-				return "", fmt.Errorf("error in update userorders value2")
+				return "", fmt.Errorf("error in update orderitems value2")
 			}
-			_, err = db.Exec(`update orders set order_conformation=$1 where orderid=$2`, utils.OrderStatus["Closed"], orderexsits)
+			_, err = db.Exec(`update orders set order_status=$1 ,updated_at=$2 where order_id=$3`, utils.OrderStatus["Closed"], time.Now(), orderid)
+			if err != nil {
+
+				return "", fmt.Errorf("error in update orders val2")
+			}
+			_, err := db.Exec(`update product set stock=stock+$1 where product_id =$2`, productcount, productId)
 			if err != nil {
 
 				return "", fmt.Errorf("error in update orders val2")
@@ -1117,14 +1173,14 @@ func ChangeStatus(token string, orderId int64, status string) (string, error) {
 			return "", fmt.Errorf("please check the order status")
 		}
 
-	} else if previoustatus == 5 {
-		if value == 4 {
-			_, err = db.Exec(`update userorders set conformation_status=$1 where orderitemid=$2`, value, orderexsits)
+	} else if previoustatus == "dispatch" {
+		if value == "deliver" {
+			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2`, value, orderexsits)
 			if err != nil {
 
 				return "", fmt.Errorf("error in update orders val2")
 			}
-			_, err = db.Exec(`update orders set order_conformation=$1 where orderid=$2`, utils.OrderStatus["Closed"], orderexsits)
+			_, err = db.Exec(`update orders set order_status=$1 ,updated_at=$2 where order_id=$3`, utils.OrderStatus["Active"], time.Now(), orderid)
 			if err != nil {
 
 				return "", fmt.Errorf("error in update orders value4")
@@ -1135,19 +1191,21 @@ func ChangeStatus(token string, orderId int64, status string) (string, error) {
 			return "", fmt.Errorf("please check the order status")
 		}
 
+	} else if previoustatus == "deliver" {
+		return "", fmt.Errorf("item already delivered")
 	}
 	return "", nil
 
 }
 
-func conform(status string) (int, error) {
+func conform(status string) (string, error) {
 	for key, value := range utils.Active {
 		if status == key {
 
 			return value, nil
 		}
 	}
-	return 0, fmt.Errorf("not a valid orderstatus")
+	return "", fmt.Errorf("not a valid orderstatus")
 }
 
 func OrderDetails(orderid int64) (*model.OrderData, error) {
@@ -1155,19 +1213,18 @@ func OrderDetails(orderid int64) (*model.OrderData, error) {
 	query := `
 	SELECT
 	
-	r.productid,
-	r.product_count,
-	r.price,
-	r.conformation_status,
-	r.productname,
-	r.description,
-			r.brand,
-			r.category
+	r.order_item_id,
+	   
+	r.quantity,
+   
+	r.item_order_status,
+	o.created_at,
+	r.item_info
 		FROM
-			userorders r
-		
+			orderitems r
+         join orders o on o.order_id=r.order_id		
 		WHERE
-			r.orderitemid = $1
+			r.order_item_id = $1
     `
 
 	rows, err := db.Query(query, orderid)
@@ -1181,17 +1238,16 @@ func OrderDetails(orderid int64) (*model.OrderData, error) {
 
 	for rows.Next() {
 		var OrderDetails model.ProductData
-		var conform int
+		var productDetailsJSON []byte
+		var conform string
 
 		err := rows.Scan(
 			&OrderDetails.ProductId,
 			&OrderDetails.Quantity,
-			&OrderDetails.Price,
+
 			&conform,
-			&OrderDetails.ProductName,
-			&OrderDetails.Description,
-			&OrderDetails.Brand,
-			&OrderDetails.Category,
+			&OrderDetails.OrderedAt,
+			&productDetailsJSON,
 		)
 		if err != nil {
 			return nil, err
@@ -1203,9 +1259,13 @@ func OrderDetails(orderid int64) (*model.OrderData, error) {
 				OrderDetails.OrderStatus = key
 			}
 		}
+		var productDetails model.ListWithoutStock
+		if err := json.Unmarshal(productDetailsJSON, &productDetails); err != nil {
+			return nil, err
+		}
+		OrderDetails.ListWithoutStock = productDetails
 
 		// Calculate the total price for this product
-		order.TotalPrice += OrderDetails.Price * OrderDetails.Quantity
 
 		// Fetch product assets for this product
 		rows3, err := db.Query(`
@@ -1228,6 +1288,8 @@ func OrderDetails(orderid int64) (*model.OrderData, error) {
 			OrderDetails.Assets = append(OrderDetails.Assets, assetlist)
 		}
 
+		order.TotalPrice += OrderDetails.Price * OrderDetails.Quantity
+
 		order.ProductInfo = append(order.ProductInfo, OrderDetails)
 	}
 
@@ -1244,20 +1306,19 @@ func OrderList(token string) (*model.OrderList, error) {
 	// Query to fetch order details and associated product details
 	query := `
 	SELECT
-	    r.orderitemid,
-	    r.productid,
-	    r.product_count,
-	    r.price,
-		r.conformation_status,
-	    r.productname,
-	    r.description,
-			    r.brand,
-			    r.category
+	   r.order_id,
+	    r.order_item_id,
+	   
+	    r.quantity,
+	   
+		r.item_order_status,
+		o.created_at,
+	    r.item_info
 			FROM
-			    userorders r
+			    orderitems r join orders o on o.order_id=r.order_id
 			
 			WHERE
-			    r.userid = $1;
+			    o.user_id = $1;
 			`
 
 	rows, err := db.Query(query, id)
@@ -1271,18 +1332,16 @@ func OrderList(token string) (*model.OrderList, error) {
 
 	for rows.Next() {
 		var order model.OrderDetails
-		var productstatus int
+		var productDetailsJSON []byte
+		var productstatus string
 		// var status string
 		err := rows.Scan(
 			&order.OrderId,
-			&order.ProductId,
+			&order.OrderItemId,
 			&order.Quantity,
-			&order.Price,
 			&productstatus,
-			&order.ProductName,
-			&order.Description,
-			&order.Brand,
-			&order.Category,
+			&order.OrderedAt,
+			&productDetailsJSON,
 		)
 		if err != nil {
 			return nil, err
@@ -1293,6 +1352,11 @@ func OrderList(token string) (*model.OrderList, error) {
 			}
 
 		}
+		var productDetails model.ListWithoutStock
+		if err := json.Unmarshal(productDetailsJSON, &productDetails); err != nil {
+			return nil, err
+		}
+		order.ListWithoutStock = productDetails
 
 		rows3, err := db.Query(`
             SELECT asset_id, file_path, file_type, added_at
@@ -1310,6 +1374,7 @@ func OrderList(token string) (*model.OrderList, error) {
 				return nil, err
 			}
 			order.Assets = append(order.Assets, assetlist)
+			fmt.Println(len(order.Assets))
 		}
 
 		list.OrderDetails = append(list.OrderDetails, order)

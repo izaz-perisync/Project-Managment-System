@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -70,8 +71,49 @@ func chekEmail(body model.Register) bool {
 
 	err := row.Scan(&email)
 	if err != nil {
-
+		fmt.Println(err)
 		return false
 	}
 	return true
+}
+
+func AddAddress(token string, body model.Address) error {
+	id, err := VaildSign(token)
+	if err != nil {
+		return err
+	}
+	if err := body.Validate(); err != nil {
+		return err
+	}
+	unique := address(id, body)
+	if !unique {
+
+		_, err = db.Exec(`insert into address_data (user_id,
+			latitude,
+			longitude,
+			street_address,
+			city,
+			state,
+			postal_code
+			,country,
+			label) values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, id, body.Latitude, body.Longitude, body.Street_Address, body.City, body.State, body.PostalCode, body.Country, body.Label)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("above address is already added")
+	}
+
+	return nil
+}
+
+func address(id *int, body model.Address) bool {
+	var count int
+	err := db.QueryRow(`select count(*) from address_data where longitude=$1 and latitude=$2 and user_id=$3`, body.Longitude, body.Latitude, id).Scan(&count)
+	if err != nil {
+		fmt.Println("err", err)
+		return false
+	}
+	fmt.Println("count", count)
+	return count > 0
 }

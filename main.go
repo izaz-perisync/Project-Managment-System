@@ -34,6 +34,7 @@ func main() {
 	user := api.PathPrefix("/account").Subrouter()
 	user.HandleFunc("/register", handler.HandlerRegister).Methods(http.MethodPost)
 	user.HandleFunc("/login", handler.HandlerLogin).Methods(http.MethodPost)
+	user.HandleFunc("/address", handler.HandlerUserAddress).Methods(http.MethodPost)
 
 	product := api.PathPrefix("/product").Subrouter()
 	product.HandleFunc("/add", handler.HandlerAddProduct).Methods(http.MethodPost)
@@ -45,8 +46,8 @@ func main() {
 	product.HandleFunc("/details", handler.HandleGetProductData).Methods(http.MethodGet)
 	product.HandleFunc("/delete_asset", handler.HandlerDeleteAsset).Methods(http.MethodDelete)
 	product.HandleFunc("/filter", handler.HandlerFilterProduct).Methods(http.MethodPost)
-	product.HandleFunc("/placeorder", handler.HandlerPlaceOrder).Methods(http.MethodPost)
-	product.HandleFunc("/orderlist", handler.HandlerOrderList).Methods(http.MethodGet)
+	product.HandleFunc("/placeorder", handler.HandlerPlaceOrder).Methods(http.MethodGet)
+	product.HandleFunc("/order", handler.HandlerOrderList).Methods(http.MethodGet)
 	product.HandleFunc("/order_data", handler.HandlerOrderdetails).Methods(http.MethodGet)
 
 	vendor := api.PathPrefix("/vendor").Subrouter()

@@ -377,14 +377,14 @@ func HandlerUpdateQuantity(w http.ResponseWriter, r *http.Request) {
 func HandlerPlaceOrder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	tokenString := getTokenStringFromRequest(r)
-	var body model.FilterProduct
-	err := json.NewDecoder(r.Body).Decode(&body)
-	if err != nil {
-		writeJson(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	// var body model.FilterProduct
+	// err := json.NewDecoder(r.Body).Decode(&body)
+	// if err != nil {
+	// 	writeJson(w, http.StatusBadRequest, err.Error())
+	// 	return
+	// }
 
-	err = service.PlaceOrder(tokenString, body)
+	err := service.PlaceOrder(tokenString)
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, err.Error())
 		return
@@ -410,7 +410,7 @@ func HandlerOrderList(w http.ResponseWriter, r *http.Request) {
 
 func HandlerOrderdetails(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
-	orderId := r.URL.Query().Get("orderId")
+	orderId := r.URL.Query().Get("orderItemId")
 
 	id, err := strconv.ParseInt(orderId, 0, 64)
 	if err != nil {
