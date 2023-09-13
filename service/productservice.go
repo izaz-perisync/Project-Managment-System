@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/perisynctechnologies/pms/model"
 	"github.com/perisynctechnologies/pms/utils"
+	gomail "gopkg.in/mail.v2"
 )
 
 func AddProduct(token string, body model.AddProduct) error {
@@ -776,6 +778,7 @@ func PlaceOrder(token string) error {
 	defer rows.Close()
 	var cartids []int
 	var products []int
+	var details []int
 
 	var product_count []int
 
@@ -847,7 +850,7 @@ func PlaceOrder(token string) error {
 		Price       int
 		Quantity    int
 	}
-
+	details = append(details, *id)
 	productinfo, err := tx.Query(`select o.order_id,o.user_id,
 	 p.product_id,p.product_name, 
 	p.description, p.brand, p.category,p.price,p.userid,c.product_count
@@ -902,6 +905,7 @@ func PlaceOrder(token string) error {
 
 			return err
 		}
+		details = append(details, info.VendorId)
 		_, err = tx.Exec(`insert into orderitems (order_id,item_info,quantity,vendor_id,item_order_status) 
 		values($1,$2,$3,$4,$5) `, info.OrderID, productDetailsJSON, info.Quantity, info.VendorId, utils.Active["placed"])
 		if err != nil {
@@ -931,14 +935,219 @@ func PlaceOrder(token string) error {
 		}
 	}
 
-	fmt.Println("data", item_info)
+	// return nil
+
+	// fmt.Println("data", item_info)
 	err = tx.Commit()
 	if err != nil {
 		fmt.Println("er7")
 		tx.Rollback()
 		return err
 	}
+	fmt.Println(details)
+	r := Sendemail(details)
+	fmt.Println(details, r)
 
+	return nil
+}
+
+func Sendemail(details []int) error {
+
+	for index := range details {
+
+		m := gomail.NewMessage()
+
+		m.SetHeader("From", "izaz@perisync.com")
+		var recepient string
+		fmt.Println(details[index])
+		// var emailBody strings.Builder
+		emailBody := `  <html>
+<head>
+	<style>
+		table {
+			border-collapse: collapse;
+			width: 100%;
+		}
+		th, td {
+			border: 1px solid #ddd;
+			padding: 8px;
+			text-align: left;
+			
+		}
+		th {
+			background-color: #f2f2f2;
+		}
+		td{
+			background-colour:#7529f;
+		}
+	</style>
+</head>
+<body>
+	<h2>Order Details</h2>
+	<table>
+		<tr>
+			<th>Product Name</th>
+			<th>Category</th>
+			<th>Brand</th>
+			<th>Price</th>
+			<th>Quantity Ordered</th>
+			<th>Total Price</th>
+			<th>OrderStatus</th>
+		</tr>`
+		// emailBody.WriteString("<html><body>")
+		// emailBody.WriteString("<h2>Order Details</h2>")
+		// emailBody.WriteString("<table border=\"2\">")
+		// emailBody.WriteString("<tr>")
+		// emailBody.WriteString("<th>Product Name</th>")
+		// emailBody.WriteString("<th>Category</th>")
+		// emailBody.WriteString("<th>Brand</th>")
+		// emailBody.WriteString("<th>Price</th>")
+		// emailBody.WriteString("<th>Quantity Ordered</th>")
+		// emailBody.WriteString("<th>Total Price</th>")
+		// emailBody.WriteString("</tr>")
+		err := db.QueryRow(`select email from userdata where id=$1`, details[index]).Scan(&recepient)
+		if err != nil {
+			fmt.Println("error at start", err)
+			return err
+		}
+
+		m.SetHeader("To", recepient)
+
+		m.SetHeader("Subject", "orderPlaced")
+
+		var orderid int
+		err = db.QueryRow(`select order_id from orders where user_id=$1`, details[index]).Scan(&orderid)
+		if err != nil {
+			fmt.Println("eq2", err)
+		}
+		if orderid == 0 {
+			fmt.Println("orderid", orderid)
+			rows, err := db.Query(`select item_info,quantity,item_order_status from orderitems where vendor_id=$1`, details[index])
+			if err != nil {
+				fmt.Println("errdata", err)
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var productDetailsJSON []byte
+				var quantity int
+				var status string
+				err := rows.Scan(
+					&productDetailsJSON,
+					&quantity,
+					&status,
+				)
+				if err != nil {
+					fmt.Println("==", err)
+					return err
+				}
+				var productDetails model.ListWithoutStock
+				if err := json.Unmarshal(productDetailsJSON, &productDetails); err != nil {
+					fmt.Println("unmarshal err", err)
+					return err
+				}
+				fmt.Println("json", productDetails)
+				fmt.Println("quantity", quantity)
+
+				totalprice := productDetails.Price * quantity
+				// m.SetBody("text/plain", "product name"+productDetails.ProductName+"productCategory:"+productDetails.Category+"Brand:"+productDetails.Brand+"price:"+strconv.Itoa(productDetails.Price)+"quantity ordered:"+strconv.Itoa(quantity)+"total price:"+strconv.Itoa(totalprice))
+				// emailBody.WriteString(fmt.Sprintf("product name: %s, productCategory: %s, Brand: %s, price: %s, quantity ordered: %s, total price: %s\n",
+				// 	productDetails.ProductName, productDetails.Category, productDetails.Brand, strconv.Itoa(productDetails.Price), strconv.Itoa(quantity), strconv.Itoa(totalprice)))
+				// emailBody.WriteString("<tr>")
+				// emailBody.WriteString("<td>" + productDetails.ProductName + "</td>")
+				// emailBody.WriteString("<td>" + productDetails.Category + "</td>")
+				// emailBody.WriteString("<td>" + productDetails.Brand + "</td>")
+				// emailBody.WriteString("<td>" + strconv.Itoa(productDetails.Price) + "</td>")
+				// emailBody.WriteString("<td>" + strconv.Itoa(quantity) + "</td>")
+				// emailBody.WriteString("<td>" + strconv.Itoa(totalprice) + "</td>")
+				// emailBody.WriteString("</tr>")
+				emailBody += `
+                <tr>
+                    <td>` + productDetails.ProductName + `</td>
+                    <td>` + productDetails.Category + `</td>
+                    <td>` + productDetails.Brand + `</td>
+                    <td>` + strconv.Itoa(productDetails.Price) + `</td>
+                    <td>` + strconv.Itoa(quantity) + `</td>
+                    <td>` + strconv.Itoa(totalprice) + `</td>
+					<td>` + status + `</td>
+                </tr>
+            `
+			}
+		} else {
+			fmt.Println("row", orderid)
+			rows, err := db.Query(`select item_info,quantity,item_order_status from orderitems where order_id=$1`, orderid)
+			if err != nil {
+				fmt.Println("er1", err)
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var productDetailsJSON []byte
+				var quantity int
+				var status string
+				err := rows.Scan(
+					&productDetailsJSON,
+					&quantity,
+					&status,
+				)
+				if err != nil {
+					fmt.Println("er2", err)
+					return err
+				}
+				var productDetails model.ListWithoutStock
+				if err := json.Unmarshal(productDetailsJSON, &productDetails); err != nil {
+					fmt.Println("err145", err)
+					return err
+				}
+				fmt.Println("====", productDetails)
+
+				totalprice := productDetails.Price * quantity
+				// m.SetBody("text/plain", "product name"+productDetails.ProductName+"productCategory:"+productDetails.Category+"Brand:"+productDetails.Brand+"price:"+strconv.Itoa(productDetails.Price)+"quantity ordered:"+strconv.Itoa(quantity)+"total price:"+strconv.Itoa(totalprice))
+				// emailBody.WriteString(fmt.Sprintf("product name: %s, productCategory: %s, Brand: %s, price: %s, quantity ordered: %s, total price: %s\n",
+				// 	productDetails.ProductName, productDetails.Category, productDetails.Brand, strconv.Itoa(productDetails.Price), strconv.Itoa(quantity), strconv.Itoa(totalprice)))
+				// emailBody.WriteString("<tr>")
+				// emailBody.WriteString("<td>" + productDetails.ProductName + "</td>")
+				// emailBody.WriteString("<td>" + productDetails.Category + "</td>")
+				// emailBody.WriteString("<td>" + productDetails.Brand + "</td>")
+				// emailBody.WriteString("<td>" + strconv.Itoa(productDetails.Price) + "</td>")
+				// emailBody.WriteString("<td>" + strconv.Itoa(quantity) + "</td>")
+				// emailBody.WriteString("<td>" + strconv.Itoa(totalprice) + "</td>")
+				// emailBody.WriteString("</tr>")
+				emailBody += `
+                <tr>
+                    <td>` + productDetails.ProductName + `</td>
+                    <td>` + productDetails.Category + `</td>
+                    <td>` + productDetails.Brand + `</td>
+                    <td>` + strconv.Itoa(productDetails.Price) + `</td>
+                    <td>` + strconv.Itoa(quantity) + `</td>
+                    <td>` + strconv.Itoa(totalprice) + `</td>
+					<td>` + status + `</td>
+                </tr>
+            `
+
+			}
+		}
+
+		// emailBody.WriteString("</table>")
+		// emailBody.WriteString("</body></html>")
+		// m.SetBody("text/html", emailBody.String())
+		emailBody += `
+                </table>
+            </body>
+            </html>
+        `
+
+		// Set the email body as HTML
+		m.SetBody("text/html", emailBody)
+		d := gomail.NewDialer("mail.perisync.com", 587, "izaz@perisync.com", "Pass@124!")
+		d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+
+		// Now send E-Mail
+		if err := d.DialAndSend(m); err != nil {
+			fmt.Println("er1243", err)
+			panic(err)
+		}
+	}
 	return nil
 }
 
@@ -1093,40 +1302,69 @@ func ChangeStatus(token string, orderId int64, status string) (string, error) {
 		fmt.Println("here")
 		return "error in query", err
 	}
-
+	fmt.Println("itemid", orderexsits)
 	value, err := conform(status)
 	if err != nil {
 		return "error in status", err
+	}
+	var details []struct {
+		UserID      int
+		OrderId     int
+		OrderItemId int
 	}
 	if previoustatus == "placed" || previoustatus == "reject" {
 		fmt.Println("came inside", previoustatus, value)
 		if value == "accept" {
 
-			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2`, value, orderexsits)
+			var info struct {
+				UserID      int
+				OrderId     int
+				OrderItemId int
+			}
+			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2 `, value, orderexsits)
 			if err != nil {
 
 				return "", fmt.Errorf("error in update userorders value1")
 			}
-			_, err = db.Exec(`update orders set order_status=$1,updated_at=$2 where order_id=$3`, utils.OrderStatus["Active"], time.Now(), orderid)
+			info.OrderItemId = orderexsits
+			// var ordererduser,orderid,orderitemid int
+			err = db.QueryRow(`update orders set order_status=$1,updated_at=$2 where order_id=$3 returning user_id `, utils.OrderStatus["Active"], time.Now(), orderid).Scan(&info.UserID)
 			if err != nil {
 
 				return "", fmt.Errorf("error in orders val1")
 			}
+			info.OrderId = orderid
+
+			details = append(details, info)
+			r := StatusEmail(details)
+			fmt.Println(details, r)
 			return "order accepted", nil
 		} else if value == "reject" {
+			var info struct {
+				UserID      int
+				OrderId     int
+				OrderItemId int
+			}
 			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2`, value, orderexsits)
 			if err != nil {
 
 				return "", fmt.Errorf("error in update userorders value2")
 			}
-			_, err = db.Exec(`update orders set order_status=$1,updated_at=$2 where order_id=$3`, utils.OrderStatus["Closed"], time.Now(), orderid)
-			if err != nil {
+			info.OrderItemId = orderexsits
 
+			err = db.QueryRow(`update orders set order_status=$1,updated_at=$2 where order_id=$3 returning user_id`, utils.OrderStatus["Closed"], time.Now(), orderid).Scan(&info.UserID)
+			if err != nil {
+				fmt.Println(err)
 				return "", fmt.Errorf("error in update orders val2")
 			}
+			info.OrderId = orderid
+
+			details = append(details, info)
+			r := StatusEmail(details)
+			fmt.Println(details, r)
 			_, err := db.Exec(`update product set stock=stock+$1 where product_id =$2`, productcount, productId)
 			if err != nil {
-				fmt.Println("update stock err")
+				fmt.Println("update stock err", err)
 
 				return "", fmt.Errorf("error in update orders val2")
 			}
@@ -1140,32 +1378,71 @@ func ChangeStatus(token string, orderId int64, status string) (string, error) {
 	} else if previoustatus == "accept" {
 		if value == "dispatch" {
 
-			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2`, value, orderexsits)
+			var info struct {
+				UserID      int
+				OrderId     int
+				OrderItemId int
+			}
+			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2 `, value, orderexsits)
 			if err != nil {
 
 				return "error in update orderitems value5 ", err
 			}
-			_, err = db.Exec(`update orders set updated_at=$1 where order_id=$2`, time.Now(), orderid)
-			if err != nil {
+			info.OrderItemId = orderexsits
+			fmt.Println("info order itemid", info.OrderItemId)
 
+			err = db.QueryRow(`update orders set updated_at=$1 where order_id=$2 returning user_id  `, time.Now(), orderid).Scan(&info.UserID)
+			if err != nil {
+				fmt.Println("er3", err)
 				return "", fmt.Errorf("error in update orders val2")
 			}
+			info.OrderId = orderid
+			fmt.Println("info", info)
+
+			details = append(details, info)
+			fmt.Println("==", details, "-", info)
+			r := StatusEmail(details)
+			fmt.Println(details, r)
 			return "order dispatched", nil
 
 		} else if value == "reject" {
-			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2`, value, orderexsits)
+			var info struct {
+				UserID      int
+				OrderId     int
+				OrderItemId int
+			}
+			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2 `, value, orderexsits)
 			if err != nil {
 
 				return "", fmt.Errorf("error in update orderitems value2")
 			}
-			_, err = db.Exec(`update orders set order_status=$1 ,updated_at=$2 where order_id=$3`, utils.OrderStatus["Closed"], time.Now(), orderid)
+			info.OrderItemId = orderexsits
+
+			err = db.QueryRow(`update orders set order_status=$1 ,updated_at=$2 where order_id=$3 returning user_id  `, utils.OrderStatus["Closed"], time.Now(), orderid).Scan(&info.UserID)
 			if err != nil {
+				fmt.Println("er2", err)
 
 				return "", fmt.Errorf("error in update orders val2")
 			}
+			info.OrderId = orderid
+
+			// err = db.QueryRow(`SELECT r.user_id, o.order_item_id FROM orders r join orderitems o on o.order_id=$1 WHERE r.order_id = $1`, info.OrderId, info.OrderId).Scan(&info.UserID, &info.OrderItemId)
+			// if err != nil {
+			// 	fmt.Println(err)
+			// 	return "", fmt.Errorf("error in fetching updated values")
+			// }
+			// err = db.QueryRow(`SELECT r.user_id, o.order_item_id FROM orders r join orderitems o on o.order_id=$1 WHERE r.order_id = $1`, info.OrderId).Scan(&info.UserID, &info.OrderItemId)
+			// if err != nil {
+			// 	fmt.Println(err)
+			// 	return "", fmt.Errorf("error in fetching updated values")
+			// }
+			details = append(details, info)
+			fmt.Println(details)
+			r := StatusEmail(details)
+			fmt.Println(details, r)
 			_, err := db.Exec(`update product set stock=stock+$1 where product_id =$2`, productcount, productId)
 			if err != nil {
-
+				fmt.Println("er1", err)
 				return "", fmt.Errorf("error in update orders val2")
 			}
 			return "order rejected", nil
@@ -1175,16 +1452,30 @@ func ChangeStatus(token string, orderId int64, status string) (string, error) {
 
 	} else if previoustatus == "dispatch" {
 		if value == "deliver" {
-			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2`, value, orderexsits)
+			var info struct {
+				UserID      int
+				OrderId     int
+				OrderItemId int
+			}
+			_, err = db.Exec(`update orderitems set item_order_status=$1 where order_item_id=$2 `, value, orderexsits)
 			if err != nil {
+				fmt.Println("er5", err)
 
 				return "", fmt.Errorf("error in update orders val2")
 			}
-			_, err = db.Exec(`update orders set order_status=$1 ,updated_at=$2 where order_id=$3`, utils.OrderStatus["Active"], time.Now(), orderid)
-			if err != nil {
+			info.OrderItemId = orderexsits
 
+			err = db.QueryRow(`update orders set order_status=$1 ,updated_at=$2 where order_id=$3 returning user_id `, utils.OrderStatus["Active"], time.Now(), orderid).Scan(&info.UserID)
+			if err != nil {
+				fmt.Println(err)
 				return "", fmt.Errorf("error in update orders value4")
 			}
+			info.OrderId = orderid
+
+			details = append(details, info)
+			r := StatusEmail(details)
+			fmt.Println(details, r)
+
 			return "order delivered ", nil
 
 		} else {
@@ -1194,8 +1485,127 @@ func ChangeStatus(token string, orderId int64, status string) (string, error) {
 	} else if previoustatus == "deliver" {
 		return "", fmt.Errorf("item already delivered")
 	}
+
 	return "", nil
 
+}
+
+func StatusEmail(details []struct {
+	UserID      int
+	OrderId     int
+	OrderItemId int
+}) error {
+	for _, info := range details {
+		m := gomail.NewMessage()
+
+		m.SetHeader("From", "izaz@perisync.com")
+		var recepient string
+		fmt.Println(info)
+		emailBody := `  <html>
+		<head>
+			<style>
+				table {
+					border-collapse: collapse;
+					width: 100%;
+				}
+				th, td {
+					border: 1px solid #ddd;
+					padding: 8px;
+					text-align: left;
+					
+				}
+				th {
+					background-color: #f2f2f2;
+				}
+				td{
+					background-colour:#7529f;
+				}
+			</style>
+		</head>
+		<body>
+
+			<h2>Order Details</h2>
+			
+			`
+		err := db.QueryRow(`select email from userdata where id=$1`, info.UserID).Scan(&recepient)
+		if err != nil {
+			fmt.Println("error at start", err)
+			return err
+		}
+		m.SetHeader("To", recepient)
+		m.SetHeader("Subject", "OrderStatus")
+		rows, err := db.Query(`select item_info,quantity,item_order_status from orderitems where order_id=$1 and order_item_id=$2`, info.OrderId, info.OrderItemId)
+		if err != nil {
+			fmt.Println("er1", err)
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var productDetailsJSON []byte
+			var quantity int
+			var status string
+			err := rows.Scan(
+				&productDetailsJSON,
+				&quantity,
+				&status,
+			)
+			if err != nil {
+				fmt.Println("er2", err)
+				return err
+			}
+			var productDetails model.ListWithoutStock
+			if err := json.Unmarshal(productDetailsJSON, &productDetails); err != nil {
+				fmt.Println("err145", err)
+				return err
+			}
+			fmt.Println("====", productDetails)
+
+			totalprice := productDetails.Price * quantity
+			emailBody += `<p><h4 style="font-size:12px ">Ordered Product </h4> ` + productDetails.ProductName + `  <h2 style="background-color: #f2f2f2">status has changed to<h2> ` + status + ` , whose brand name is ` + productDetails.Brand + `
+			type of product is ` + productDetails.Category + `total amount payed for product is ` + strconv.Itoa(totalprice) + ` quantity of placed order is
+			` + strconv.Itoa(quantity) + `</p>
+			
+               
+			<table>
+			<tr>
+				<th>Product Name</th>
+				<th>Category</th>
+				<th>Brand</th>
+				<th>Price</th>
+				<th>Quantity Ordered</th>
+				<th>Total Price</th>
+				<th>OrderStatus</th>
+			</tr>
+
+                <tr>
+                    <td>` + productDetails.ProductName + `</td>
+                    <td>` + productDetails.Category + `</td>
+                    <td>` + productDetails.Brand + `</td>
+                    <td>` + strconv.Itoa(productDetails.Price) + `</td>
+                    <td>` + strconv.Itoa(quantity) + `</td>
+                    <td>` + strconv.Itoa(totalprice) + `</td>
+					<td>` + status + `</td>
+                </tr>
+				
+				</table>
+            `
+
+		}
+		emailBody += `
+            </body>
+            </html>
+        `
+		m.SetBody("text/html", emailBody)
+		d := gomail.NewDialer("mail.perisync.com", 587, "izaz@perisync.com", "Pass@124!")
+		d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+
+		// Now send E-Mail
+		if err := d.DialAndSend(m); err != nil {
+			fmt.Println("er1243", err)
+			panic(err)
+		}
+	}
+	return nil
 }
 
 func conform(status string) (string, error) {

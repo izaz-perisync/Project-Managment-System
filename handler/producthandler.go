@@ -457,7 +457,7 @@ func HandlerChangeOrderList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	tokenString := getTokenStringFromRequest(r)
 	status := r.URL.Query().Get("status")
-	orderId := r.URL.Query().Get("orderId")
+	orderId := r.URL.Query().Get("orderItemId")
 	id, err := strconv.ParseInt(orderId, 0, 64)
 	if err != nil {
 		writeJson(w, http.StatusBadRequest, err.Error())
