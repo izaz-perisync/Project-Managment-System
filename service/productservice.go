@@ -971,7 +971,8 @@ func Sendemail(details []int) error {
 		th, td {
 			border: 1px solid #ddd;
 			padding: 8px;
-			text-align: left;
+			text-align: center;
+    font-size: 15px;
 			
 		}
 		th {
@@ -980,31 +981,23 @@ func Sendemail(details []int) error {
 		td{
 			background-colour:#7529f;
 		}
+		.container {
+			display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    flex: 1;
+    height: 100vh;
+		}
 	</style>
 </head>
 <body>
-	<h2>Order Details</h2>
-	<table>
-		<tr>
-			<th>Product Name</th>
-			<th>Category</th>
-			<th>Brand</th>
-			<th>Price</th>
-			<th>Quantity Ordered</th>
-			<th>Total Price</th>
-			<th>OrderStatus</th>
-		</tr>`
-		// emailBody.WriteString("<html><body>")
-		// emailBody.WriteString("<h2>Order Details</h2>")
-		// emailBody.WriteString("<table border=\"2\">")
-		// emailBody.WriteString("<tr>")
-		// emailBody.WriteString("<th>Product Name</th>")
-		// emailBody.WriteString("<th>Category</th>")
-		// emailBody.WriteString("<th>Brand</th>")
-		// emailBody.WriteString("<th>Price</th>")
-		// emailBody.WriteString("<th>Quantity Ordered</th>")
-		// emailBody.WriteString("<th>Total Price</th>")
-		// emailBody.WriteString("</tr>")
+
+<div  >
+				
+	
+	`
+
 		err := db.QueryRow(`select email from userdata where id=$1`, details[index]).Scan(&recepient)
 		if err != nil {
 			fmt.Println("error at start", err)
@@ -1022,7 +1015,25 @@ func Sendemail(details []int) error {
 		}
 		if orderid == 0 {
 			fmt.Println("orderid", orderid)
-			rows, err := db.Query(`select item_info,quantity,item_order_status from orderitems where vendor_id=$1`, details[index])
+			// 			SELECT oi.item_info, oi.quantity, oi.item_order_status, oi.vendor_id, total_price
+			// FROM orderitems oi
+			// INNER JOIN (
+			//     SELECT vendor_id, SUM((item_info->>'price')::int*quantity) AS total_price
+			//     FROM orderitems
+			//     WHERE vendor_id = 6
+			//     GROUP BY vendor_id
+			// ) subquery ON oi.vendor_id = subquery.vendor_id
+			// WHERE oi.vendor_id = 6;
+			// select item_info,quantity,item_order_status,sum((item_info->>'price')::int*quantity) from orderitems where vendor_id=$1`, details[index]
+			rows, err := db.Query(`SELECT oi.item_info, oi.quantity, oi.item_order_status, oi.order_id, total_price
+			FROM orderitems oi
+			INNER JOIN (
+			    SELECT vendor_id, SUM((item_info->>'price')::int*quantity) AS total_price
+			    FROM orderitems
+			    WHERE vendor_id = $1
+			    GROUP BY vendor_id
+			) subquery ON oi.vendor_id = subquery.vendor_id
+			WHERE oi.vendor_id = $1`, details[index])
 			if err != nil {
 				fmt.Println("errdata", err)
 				return err
@@ -1030,12 +1041,16 @@ func Sendemail(details []int) error {
 			defer rows.Close()
 			for rows.Next() {
 				var productDetailsJSON []byte
-				var quantity int
+				var quantity, totalpriceorders int
 				var status string
+				var order_id int
+
 				err := rows.Scan(
 					&productDetailsJSON,
 					&quantity,
 					&status,
+					&order_id,
+					&totalpriceorders,
 				)
 				if err != nil {
 					fmt.Println("==", err)
@@ -1061,8 +1076,26 @@ func Sendemail(details []int) error {
 				// emailBody.WriteString("<td>" + strconv.Itoa(quantity) + "</td>")
 				// emailBody.WriteString("<td>" + strconv.Itoa(totalprice) + "</td>")
 				// emailBody.WriteString("</tr>")
+
 				emailBody += `
+
+		<h3>Order Summary</h3>
+		<p><strong>Order ID:</strong> ` + strconv.Itoa(order_id) + `</p>
+		<p><strong>Total Items:</strong> ` + strconv.Itoa(len(details)-1) + `</p> 
+		<p><strong>Total Price:</strong> $` + strconv.Itoa(totalpriceorders) + `</p>`
+				emailBody += `<table>
+				<tr>
+				<th>ProductId</th>
+					<th>Product Name</th>
+					<th>Category</th>
+					<th>Brand</th>
+					<th>Price</th>
+					<th>Quantity Ordered</th>
+					<th>Total Price</th>
+					<th>OrderStatus</th>
+				</tr>
                 <tr>
+				<td>` + strconv.Itoa(productDetails.ProductId) + `</td>
                     <td>` + productDetails.ProductName + `</td>
                     <td>` + productDetails.Category + `</td>
                     <td>` + productDetails.Brand + `</td>
@@ -1071,11 +1104,54 @@ func Sendemail(details []int) error {
                     <td>` + strconv.Itoa(totalprice) + `</td>
 					<td>` + status + `</td>
                 </tr>
+				</table>
             `
 			}
 		} else {
 			fmt.Println("row", orderid)
-			rows, err := db.Query(`select item_info,quantity,item_order_status from orderitems where order_id=$1`, orderid)
+			var totalpriceorders int
+			err := db.QueryRow(`select sum((item_info->>'price')::int*quantity) AS total_price from orderitems where order_id =$1`, orderid).Scan(&totalpriceorders)
+			if err != nil {
+				fmt.Println("er1", err)
+				return err
+			}
+
+			emailBody += `
+			<h2 style="background-color: blue;
+			color: violet;
+			height: 43px;
+			display: flex;
+			justify-content: center;
+			align-items: center;">Thank you for your order</h2>
+			<p style="    font-size: 20px;
+			display: flex;
+			flex-direction: column;
+			justify-content: center;">Your order has been received and is now being processed.Your order details shown below for your reference: </p>
+            <br>
+			<h3 style="display: flex;flex:1;padding-left: 20px;font-size:20px;justify-content: center;">Order Summary</h3>
+			
+			<p style="color:pink;font-size:30px;font-weight:900;color: pink;
+			
+			display: flex;
+			align-items: center;
+			justify-content: flex-end !important;"><strong>OrderID #</strong>` + strconv.Itoa(orderid) + ` </p>
+		
+
+			<p style="  font-family: 'Roboto', sans-serif;
+            font-weight: 700;
+            color: #6a6a6a;
+            font-size: 20px;display: flex;flex: 1;"><strong>Total Items:</strong> ` + strconv.Itoa(len(details)-1) + `</p> 
+			<p style="  font-family: 'Roboto', sans-serif;
+            font-weight: 700;
+            color: #6a6a6a;
+            font-size: 20px;display: flex;flex: 1;"><strong>Total Price:</strong> $` + strconv.Itoa(totalpriceorders) + `
+            </p>
+			
+			`
+			rows, err := db.Query(`SELECT item_info, quantity, item_order_status  
+			FROM orderitems
+			WHERE order_id = $1`, orderid)
+			// SUM((item_info->>'price')::int * quantity) OVER () AS total_price
 			if err != nil {
 				fmt.Println("er1", err)
 				return err
@@ -1085,10 +1161,12 @@ func Sendemail(details []int) error {
 				var productDetailsJSON []byte
 				var quantity int
 				var status string
+				// var totalpriceorders int
 				err := rows.Scan(
 					&productDetailsJSON,
 					&quantity,
 					&status,
+					// &totalpriceorders,
 				)
 				if err != nil {
 					fmt.Println("er2", err)
@@ -1113,8 +1191,29 @@ func Sendemail(details []int) error {
 				// emailBody.WriteString("<td>" + strconv.Itoa(quantity) + "</td>")
 				// emailBody.WriteString("<td>" + strconv.Itoa(totalprice) + "</td>")
 				// emailBody.WriteString("</tr>")
+
 				emailBody += `
+				<div>
+				<h4>Ordered Product</h4>
+				<p class="productpara" style="font-size: 15px;
+				font-weight: 700;
+				color: #cc1254;"> Product Id : ` + strconv.Itoa(productDetails.ProductId) + ` Name of the product ordered is ` + productDetails.ProductName + `
+				    has changed its status to  ` + status + `  . Ordered Product Brand Details are ` + productDetails.Brand + `  Category of order placed product is  ` + productDetails.Category + `
+				 Total Amount Paid  $` + strconv.Itoa(totalprice) + ` ,Quantity Ordered  ` + strconv.Itoa(quantity) + `</p>
+			</div>
+				<table>
+		<tr>
+		    <th>ProductId</th>
+			<th>Product Name</th>
+			<th>Category</th>
+			<th>Brand</th>
+			<th>Price</th>
+			<th>Quantity Ordered</th>
+			<th>Total Price</th>
+			<th>OrderStatus</th>
+		</tr>
                 <tr>
+				<td>` + strconv.Itoa(productDetails.ProductId) + `</td>
                     <td>` + productDetails.ProductName + `</td>
                     <td>` + productDetails.Category + `</td>
                     <td>` + productDetails.Brand + `</td>
@@ -1123,16 +1222,18 @@ func Sendemail(details []int) error {
                     <td>` + strconv.Itoa(totalprice) + `</td>
 					<td>` + status + `</td>
                 </tr>
-            `
+				</table>
+				`
 
 			}
 		}
-
+		// <div style="display: flex; justify-content: space-between;flex-direction:column">
+		// </div>
 		// emailBody.WriteString("</table>")
 		// emailBody.WriteString("</body></html>")
 		// m.SetBody("text/html", emailBody.String())
 		emailBody += `
-                </table>
+		</div>
             </body>
             </html>
         `
@@ -1499,11 +1600,30 @@ func StatusEmail(details []struct {
 		m := gomail.NewMessage()
 
 		m.SetHeader("From", "izaz@perisync.com")
-		var recepient string
+		var recipient string
 		fmt.Println(info)
-		emailBody := `  <html>
+		emailBody := `
+		<html>
 		<head>
 			<style>
+				body {
+					font-family: Arial, sans-serif;
+					margin: 0;
+					padding: 0;
+				}
+				.container {
+					max-width: 600px;
+					margin: 0 auto;
+					padding: 20px;
+				}
+				.header {
+					background-color: #f2f2f2;
+					padding: 10px;
+					text-align: center;
+				}
+				.content {
+					padding: 20px;
+				}
 				table {
 					border-collapse: collapse;
 					width: 100%;
@@ -1512,27 +1632,33 @@ func StatusEmail(details []struct {
 					border: 1px solid #ddd;
 					padding: 8px;
 					text-align: left;
-					
 				}
 				th {
 					background-color: #f2f2f2;
 				}
-				td{
-					background-colour:#7529f;
+				 .productpara{
+					font-family: 'Roboto', sans-serif;
+             font-size:15px;
+			 font-weight: 700;
+
 				}
+				
 			</style>
 		</head>
 		<body>
-
-			<h2>Order Details</h2>
-			
+			<div class="container">
+				<div class="header">
+					<h2>Order Details</h2>
+				</div>
+				<div class="content">
 			`
-		err := db.QueryRow(`select email from userdata where id=$1`, info.UserID).Scan(&recepient)
+
+		err := db.QueryRow(`select email from userdata where id=$1`, info.UserID).Scan(&recipient)
 		if err != nil {
 			fmt.Println("error at start", err)
 			return err
 		}
-		m.SetHeader("To", recepient)
+		m.SetHeader("To", recipient)
 		m.SetHeader("Subject", "OrderStatus")
 		rows, err := db.Query(`select item_info,quantity,item_order_status from orderitems where order_id=$1 and order_item_id=$2`, info.OrderId, info.OrderItemId)
 		if err != nil {
@@ -1560,41 +1686,45 @@ func StatusEmail(details []struct {
 			}
 			fmt.Println("====", productDetails)
 
-			totalprice := productDetails.Price * quantity
-			emailBody += `<p><h4 style="font-size:12px ">Ordered Product </h4> ` + productDetails.ProductName + `  <h2 style="background-color: #f2f2f2">status has changed to<h2> ` + status + ` , whose brand name is ` + productDetails.Brand + `
-			type of product is ` + productDetails.Category + `total amount payed for product is ` + strconv.Itoa(totalprice) + ` quantity of placed order is
-			` + strconv.Itoa(quantity) + `</p>
-			
-               
+			totalPrice := productDetails.Price * quantity
+
+			emailBody += `
+			<div>
+				<h4>Ordered Product</h4>
+				<p class="productpara"> Product Id : ` + strconv.Itoa(productDetails.ProductId) + ` Name of the product ordered is ` + productDetails.ProductName + `
+				    has changed its status to  ` + status + `  . Ordered Product Brand Details are ` + productDetails.Brand + `  Category of order placed product is  ` + productDetails.Category + `
+				 Total Amount Paid  $` + strconv.Itoa(totalPrice) + ` ,Quantity Ordered  ` + strconv.Itoa(quantity) + `</p>
+			</div>
 			<table>
-			<tr>
-				<th>Product Name</th>
-				<th>Category</th>
-				<th>Brand</th>
-				<th>Price</th>
-				<th>Quantity Ordered</th>
-				<th>Total Price</th>
-				<th>OrderStatus</th>
-			</tr>
-
-                <tr>
-                    <td>` + productDetails.ProductName + `</td>
-                    <td>` + productDetails.Category + `</td>
-                    <td>` + productDetails.Brand + `</td>
-                    <td>` + strconv.Itoa(productDetails.Price) + `</td>
-                    <td>` + strconv.Itoa(quantity) + `</td>
-                    <td>` + strconv.Itoa(totalprice) + `</td>
+				<tr>
+				<th>ProductId</th>
+					<th>Product Name</th>
+					<th>Category</th>
+					<th>Brand</th>
+					<th>Price</th>
+					<th>Quantity Ordered</th>
+					<th>Total Price</th>
+					<th>Order Status</th>
+				</tr>
+				<tr>
+				<td>` + strconv.Itoa(productDetails.ProductId) + `</td>
+					<td>` + productDetails.ProductName + `</td>
+					<td>` + productDetails.Category + `</td>
+					<td>` + productDetails.Brand + `</td>
+					<td>` + strconv.Itoa(productDetails.Price) + `</td>
+					<td>` + strconv.Itoa(quantity) + `</td>
+					<td>$` + strconv.Itoa(totalPrice) + `</td>
 					<td>` + status + `</td>
-                </tr>
-				
-				</table>
-            `
-
+				</tr>
+			</table>
+			`
 		}
 		emailBody += `
-            </body>
-            </html>
-        `
+				</div>
+			</div>
+		</body>
+		</html>
+		`
 		m.SetBody("text/html", emailBody)
 		d := gomail.NewDialer("mail.perisync.com", 587, "izaz@perisync.com", "Pass@124!")
 		d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
